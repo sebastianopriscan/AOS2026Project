@@ -31,9 +31,10 @@ int hash_table_remove(throttleA_policy *policy) ;
 
 /**
  * Get a policy table entry
- * @param
+ * @param uid: The thread's effective user id
+ * @param pathname: The thread's program name
  */
-policy_with_table *hash_table_get(throttleA_policy *policy) ;
+policy_with_table *hash_table_get(uid_t uid, const char *pathname) ;
 
 
 #endif

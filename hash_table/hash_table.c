@@ -14,11 +14,28 @@
 
 #define MODULUS 193
 
+#define table_from_policy(table, policy) \
+do {\
+    switch (policy) { \
+        case POLICY_UID_ONLY: \
+            table = &UID_TABLE ; \
+            break ; \
+        case POLICY_PROGRAM_ONLY: \
+            table = &PROGRAM_TABLE ; \
+            break ; \
+        case POLICY_UID_AND_PROGRAM: \
+            table = &PROGRAM_UID_TABLE ; \
+            break ; \
+        default: \
+            return -ENOKEY ; \
+    } \
+} while (0) \
+
 struct hash_table {
     struct list_head overflow_lists[MODULUS] ;
 } ;
 
-struct hash_table TABLE ;
+struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
 
 static inline int evaluate_hash(int uid, char *name) {
     int hash = uid ;
@@ -36,11 +53,15 @@ static inline int evaluate_hash(int uid, char *name) {
 
 void init_hash_table(void) {
     for (int i = 0; i < MODULUS; i++) {
-        INIT_LIST_HEAD(&TABLE.overflow_lists[MODULUS]) ;
+        INIT_LIST_HEAD(&PROGRAM_UID_TABLE.overflow_lists[i]) ;
+        INIT_LIST_HEAD(&UID_TABLE.overflow_lists[i]) ;
+        INIT_LIST_HEAD(&PROGRAM_TABLE.overflow_lists[i]) ;
     }
 }
 
 int hash_table_insert(throttleA_policy *policy) {
+    struct hash_table *table;
+    table_from_policy(table, policy->policy) ;
 
     policy_with_table *pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
     if (pt == NULL) {
@@ -49,14 +70,17 @@ int hash_table_insert(throttleA_policy *policy) {
     memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
 
     int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &TABLE.overflow_lists[idx];
+    struct list_head *list = &table->overflow_lists[idx];
     list_add(list, &pt->hash_head) ;
     return 0 ;
 }
 
 int hash_table_remove(throttleA_policy *policy) {
+    struct hash_table *table;
+    table_from_policy(table, policy->policy) ;
+
     int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &TABLE.overflow_lists[idx] ;
+    struct list_head *list = &table->overflow_lists[idx] ;
 
     struct list_head *pos ;
     list_for_each(pos, list) {
@@ -73,19 +97,32 @@ int hash_table_remove(throttleA_policy *policy) {
     return 0 ;
 }
 
-policy_with_table *hash_table_get(throttleA_policy *policy) {
-    int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &TABLE.overflow_lists[idx] ;
+static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, const char *pathName) {
+    struct hash_table *table;
+    table_from_policy(table, policy) ;
+
+    int idx = evaluate_hash(uid, pathName) ;
+    struct list_head *list = &table->overflow_lists[idx] ;
 
     struct list_head *pos ;
     list_for_each(pos, list) {
         policy_with_table *table = list_entry(pos, policy_with_table, hash_head) ;
-        const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        const int uid_condition = uid == table->policy.uid ;
+        const int path_condition = strcmp(pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
             return table ;
         }
     }
 
     return NULL ;
+}
+
+policy_with_table *hash_table_get(uid_t uid, const char *pathName) {
+    policy_with_table *retVal = hash_table_try_get(POLICY_UID_AND_PROGRAM, uid, pathName) ;
+    if (retVal) return retVal;
+
+    retVal = hash_table_try_get(POLICY_PROGRAM_ONLY, uid, pathName) ;
+    if (retVal) return retVal;
+
+    return hash_table_try_get(POLICY_UID_ONLY, uid, pathName) ;
 }
