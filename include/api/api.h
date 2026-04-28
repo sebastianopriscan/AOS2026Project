@@ -19,11 +19,12 @@ struct _throttleA_path {
 } ;
 typedef struct _throttleA_path throttleA_path ;
 
-typedef unsigned int policy_kind ;
-
-#define POLICY_UID_ONLY ((policy_kind) 0) 
-#define POLICY_PROGRAM_ONLY ((policy_kind) 1) 
-#define POLICY_UID_AND_PROGRAM ((policy_kind) 2) 
+enum policy_kind {
+    POLICY_UID_ONLY = 0,
+    POLICY_PROGRAM_ONLY = 1,
+    POLICY_UID_AND_PROGRAM = 2
+} ;
+typedef enum policy_kind policy_kind ;
 
 /**
  * Policy for the throttler. Depending on the policy_kind field, it will
