@@ -12,12 +12,22 @@
 
 #include "include/preempt_kprobe/preempt_kprobe.h"
 
-unsigned long SEARCH_COUNTER ;
+typedef enum {
+    ON = 0,
+    OFF = 1
+} preempt_setup_status ;
+
+static preempt_setup_status STATUS = OFF ;
+
+// TODO: Evaluate if semaphore is really needed
+static struct rw_semaphore internal_semaphore ;
+
+static unsigned long SEARCH_COUNTER ;
 
 DEFINE_PER_CPU(unsigned long *, kprobe_context_pointer) ;
 
 #define setup_taget_func "probe_dummy"
-void probe_dummy(void*) {
+static void probe_dummy(void*) {
     return ;
 }
 
@@ -51,23 +61,34 @@ static struct kretprobe setup_probe = {
 } ;  
 
 void reset_kprobe_context(void) {
-    unsigned long *current_kprobe_context_pointer ;
-    //Question: would current_kprobe be sufficient?
-    current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-    __this_cpu_write(*current_kprobe_context_pointer, NULL) ;
+    down_read(&internal_semaphore) ;
+    if (STATUS == ON) {
+        unsigned long *current_kprobe_context_pointer ; //Question: would current_kprobe be sufficient?
+        current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
+        __this_cpu_write(*current_kprobe_context_pointer, NULL) ;
+    }
+    up_read(&internal_semaphore) ;
 }
 
 void set_kprobe_context(struct kprobe *probe) {
-    unsigned long *current_kprobe_context_pointer ;
-    //Question: would current_kprobe be sufficient?
-    current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-    __this_cpu_write(*current_kprobe_context_pointer, probe) ;
+    down_read(&internal_semaphore) ;
+    if (STATUS == ON) {
+        unsigned long *current_kprobe_context_pointer ;
+        //Question: would current_kprobe be sufficient?
+        current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
+        __this_cpu_write(*current_kprobe_context_pointer, probe) ;
+    }
+    up_read(&internal_semaphore) ;
 }
 
 int setup_preempt_kprobe(void) {
 
+    init_rwsem(&internal_semaphore) ;
+
+    down_write(&internal_semaphore) ;
 	int ret = register_kretprobe(&setup_probe);
 	if (ret < 0) {
+        up_write(&internal_semaphore) ;
 		return ret;
 	}
 
@@ -81,7 +102,13 @@ int setup_preempt_kprobe(void) {
 	unregister_kretprobe(&setup_probe);
 
 	if(SEARCH_COUNTER != num_online_cpus()){
+        up_write(&internal_semaphore) ;
 		return -1;
 	}
+    
+    STATUS = ON ;
+    up_write(&internal_semaphore) ;
+
+    return 0 ;
 
 }

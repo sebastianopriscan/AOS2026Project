@@ -35,7 +35,7 @@ struct hash_table {
     struct list_head overflow_lists[MODULUS] ;
 } ;
 
-struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
+static struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
 
 static inline int evaluate_hash(int uid, char *name) {
     int hash = uid ;
@@ -68,6 +68,7 @@ int hash_table_insert(throttleA_policy *policy) {
         return 1 ;
     }
     memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
+    pt->throttle_counter = 0 ;
 
     int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
     struct list_head *list = &table->overflow_lists[idx];
@@ -125,4 +126,19 @@ policy_with_table *hash_table_get(uid_t uid, const char *pathName) {
     if (retVal) return retVal;
 
     return hash_table_try_get(POLICY_UID_ONLY, uid, pathName) ;
+}
+
+void hash_table_refresh(void) {
+    for (int i = 0; i < MODULUS; i++) {
+        struct list_head *pos ;
+        list_for_each(pos, &PROGRAM_UID_TABLE.overflow_lists[i]) {
+            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        }
+        list_for_each(pos, &UID_TABLE.overflow_lists[i]) {
+            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        }
+        list_for_each(pos, &PROGRAM_TABLE.overflow_lists[i]) {
+            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        }
+    }
 }

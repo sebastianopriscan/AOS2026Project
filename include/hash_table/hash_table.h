@@ -5,8 +5,8 @@
 
 struct _policy_with_table {
     struct list_head hash_head ;
-    struct list_head instances_head ;
     throttleA_policy policy ;
+    unsigned long throttle_counter ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
 
@@ -35,6 +35,11 @@ int hash_table_remove(throttleA_policy *policy) ;
  * @param pathname: The thread's program name
  */
 policy_with_table *hash_table_get(uid_t uid, const char *pathname) ;
+
+/**
+ * Refresh the throttle_counter for each entry
+ */
+void hash_table_refresh(void) ;
 
 
 #endif
