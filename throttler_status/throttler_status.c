@@ -11,8 +11,10 @@
 #include <linux/version.h>
 
 #include "include/throttler_status/throttler_status.h"
+#include "include/timers/timers.h"
+#include "include/probing/probing.h"
 
-struct rw_semaphore status_sem ;
+static struct rw_semaphore status_sem ;
 
 typedef enum {
     ON,
@@ -29,15 +31,27 @@ void cleanup_throttler_status(void) {
 
 }
 
-void set_throttler_status_on(void) {
+int set_throttler_status_on(void) {
+    int retval = 0;
     down_write(&status_sem) ;
-    STATUS = ON ;
+    if (STATUS == OFF) {
+        int retval = enable_monitor() ;
+        if (retval >= 0) {
+            STATUS = ON ;
+            setup_timers() ;
+        }
+    }
     up_write(&status_sem) ;
+    return retval ;
 }
 
 void set_throttler_status_off(void) {
     down_write(&status_sem) ;
-    STATUS = OFF ;
+    if (STATUS == ON) {
+        disable_monitor() ;
+        STATUS = OFF ;
+        cleanup_timers() ;
+    }
     up_write(&status_sem) ;
 }
 
@@ -46,4 +60,13 @@ THROTTLER_STATUS get_throttler_status() {
     THROTTLER_STATUS read_status = STATUS;
     up_read(&status_sem) ;
     return read_status ;
+}
+
+void up_throttler_status(THROTTLER_LOCK lockKind) {
+    lockKind == THROTTLER_LOCK_READ ? down_read(&status_sem) : down_write(&status_sem) ;
+    return STATUS ;
+}
+
+THROTTLER_STATUS down_throttler_status(THROTTLER_LOCK lockKind) {
+    lockKind == THROTTLER_LOCK_READ ? up_read(&status_sem) : up_write(&status_sem) ;
 }
