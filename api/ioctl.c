@@ -37,13 +37,3 @@ ssize_t set_throttler_off() {
 throttleA_policy *dump_throttleA_status() {
 
 }
-
-
-/*********** Lifecycle operations **********/
-
-int setup_api(void) {
-    init_hash_table() ;
-}
-void cleanup_api(void) {
-
-}

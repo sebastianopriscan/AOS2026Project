@@ -31,8 +31,13 @@ do {\
     } \
 } while (0) \
 
+struct hash_table_record {
+    struct list_head overflow_list ;
+    struct rw_semaphore sem ;
+} ;
+
 struct hash_table {
-    struct list_head overflow_lists[MODULUS] ;
+    struct hash_table_record records[MODULUS] ;
 } ;
 
 static struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
@@ -53,9 +58,12 @@ static inline int evaluate_hash(int uid, char *name) {
 
 void init_hash_table(void) {
     for (int i = 0; i < MODULUS; i++) {
-        INIT_LIST_HEAD(&PROGRAM_UID_TABLE.overflow_lists[i]) ;
-        INIT_LIST_HEAD(&UID_TABLE.overflow_lists[i]) ;
-        INIT_LIST_HEAD(&PROGRAM_TABLE.overflow_lists[i]) ;
+        INIT_LIST_HEAD(&PROGRAM_UID_TABLE.records[i].overflow_list) ;
+        init_rwsem(&PROGRAM_UID_TABLE.records[i].sem) ;
+        INIT_LIST_HEAD(&UID_TABLE.records[i].overflow_list) ;
+        init_rwsem(&UID_TABLE.records[i].sem) ;
+        INIT_LIST_HEAD(&PROGRAM_TABLE.records[i].overflow_list) ;
+        init_rwsem(&PROGRAM_TABLE.records[i].sem) ;
     }
 }
 
@@ -68,11 +76,17 @@ int hash_table_insert(throttleA_policy *policy) {
         return 1 ;
     }
     memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
-    pt->throttle_counter = 0 ;
+    atomic_long_set(&pt->throttle_counter, 0) ;
+    atomic_long_set(&pt->isActive, 1) ;
 
     int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &table->overflow_lists[idx];
+    struct list_head *list = &table->records[idx].overflow_list;
+    struct rw_semaphore *sem = &table->records[idx].sem ;
+    down_write(sem) ;
+    list_add_rcu(list, &pt->hash_head) ;
     list_add(list, &pt->hash_head) ;
+    up_write(sem) ;
+
     return 0 ;
 }
 
@@ -81,7 +95,8 @@ int hash_table_remove(throttleA_policy *policy) {
     table_from_policy(table, policy->policy) ;
 
     int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &table->overflow_lists[idx] ;
+    struct list_head *list = &table->records[idx].overflow_list ;
+    struct rw_semaphore *sem = &table->records[idx].sem ;
 
     struct list_head *pos ;
     list_for_each(pos, list) {
@@ -89,7 +104,11 @@ int hash_table_remove(throttleA_policy *policy) {
         const int uid_condition = policy->uid == table->policy.uid ;
         const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
-            list_del(pos) ;
+            down_write(sem) ;
+            atomic_xchg(&table->isActive,0) ;
+            list_del_rcu(pos) ;
+            up_write(sem) ;
+            synchronize_rcu() ;
             kfree(table) ;
             break ;
         }
@@ -103,14 +122,15 @@ static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, cons
     table_from_policy(table, policy) ;
 
     int idx = evaluate_hash(uid, pathName) ;
-    struct list_head *list = &table->overflow_lists[idx] ;
+    struct list_head *list = &table->records[idx].overflow_list ;
 
     struct list_head *pos ;
-    list_for_each(pos, list) {
-        policy_with_table *table = list_entry(pos, policy_with_table, hash_head) ;
+    list_for_each_rcu(pos, list) {
+        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = uid == table->policy.uid ;
         const int path_condition = strcmp(pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
+            rcu_read_lock() ;
             return table ;
         }
     }
@@ -128,17 +148,21 @@ policy_with_table *hash_table_get(uid_t uid, const char *pathName) {
     return hash_table_try_get(POLICY_UID_ONLY, uid, pathName) ;
 }
 
+void hash_table_put(void) {
+    rcu_read_unlock() ;
+}
+
 void hash_table_refresh(void) {
     for (int i = 0; i < MODULUS; i++) {
         struct list_head *pos ;
-        list_for_each(pos, &PROGRAM_UID_TABLE.overflow_lists[i]) {
-            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        list_for_each_rcu(pos, &PROGRAM_UID_TABLE.records[i].overflow_list) {
+            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
         }
-        list_for_each(pos, &UID_TABLE.overflow_lists[i]) {
-            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        list_for_each_rcu(pos, &UID_TABLE.records[i].overflow_list) {
+            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
         }
-        list_for_each(pos, &PROGRAM_TABLE.overflow_lists[i]) {
-            list_entry(pos, policy_with_table, hash_head)->throttle_counter = 0 ;
+        list_for_each_rcu(pos, &PROGRAM_TABLE.records[i].overflow_list) {
+            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
         }
     }
 }

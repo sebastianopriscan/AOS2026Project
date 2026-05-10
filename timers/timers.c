@@ -12,6 +12,7 @@
 
 #include "include/names/names.h"
 #include "include/timers/timers.h"
+#include "include/hash_table/hash_table.h"
 #include "include/throttler_status/throttler_status.h"
 
 static struct hrtimer throttler_timer ;
@@ -19,13 +20,19 @@ static ktime_t oneSecond ;
 
 DECLARE_WAIT_QUEUE_HEAD(throttler_waitqueue) ;
 
-static enum hrtimer_restart throttler_poller(struct hrtimer *timer) {
-    wake_up(&throttler_waitqueue) ;
+atomic_t current_mode ;
 
+static enum hrtimer_restart throttler_poller(struct hrtimer *timer) {
+    atomic_xchg(&current_mode, POLLER_REFRESHING) ;
+    wake_up(&throttler_waitqueue) ;
+    hash_table_refresh() ;
+    atomic_long_xchg(&current_mode, POLLER_SLEEPING) ;
+    wake_up(&throttler_waitqueue) ;
     return HRTIMER_RESTART ;
 }
 
 void setup_timers(void) {
+    atomic_long_xchg(&current_mode, POLLER_SLEEPING) ;
     hrtimer_init(&throttler_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL) ;
     throttler_timer.function = throttler_poller ;
     oneSecond = ktime_set(1,0) ;
@@ -37,10 +44,8 @@ void cleanup_timers(void) {
     hrtimer_cancel(&throttler_timer) ;    
 }
 
-void throttle(void) {
-    THROTTLER_STATUS status = down_throttler_status(THROTTLER_LOCK_READ) ;
-    if (status == ON) {
-        wait_event(throttler_waitqueue, 1) ;
-    }
-    up_throttler_status(THROTTLER_LOCK_READ) ;
+poller_mode throttle(void) {
+    poller_mode mode = (poller_mode) atomic_read(&current_mode);
+    wait_event(throttler_waitqueue, 1) ;
+    return mode ;
 }

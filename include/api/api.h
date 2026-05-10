@@ -43,7 +43,8 @@ struct _throttleA_policy {
     unsigned int uid ;
     throttleA_path path;
     unsigned int tolerance ;
-    unsigned int *syscalls;
+    unsigned int syscalls_size ;
+    unsigned int syscalls[];
 } ;
 typedef struct _throttleA_policy throttleA_policy ;
 

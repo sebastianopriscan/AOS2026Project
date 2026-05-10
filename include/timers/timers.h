@@ -1,6 +1,11 @@
 #ifndef TIMERS_H
 #define TIMERS_H
 
+typedef enum {
+    POLLER_SLEEPING=0,
+    POLLER_REFRESHING=1
+} poller_mode ;
+
 /**
  * This function that sets up a one second periodic timer managing
  * refreshing of the throttle counters and telemetry
@@ -14,8 +19,12 @@ void cleanup_timers(void) ;
 
 /**
  * This function allows a task to put itself to sleep until
- * the next one second window
+ * the next one second window or, in case the sleep happens during
+ * a refresh window, when the refresh is over.
+ * 
+ * @returns 0 in case the throttler did not run during a refresh,
+ *          1 otherwise
  */
-void throttle(void) ;
+poller_mode throttle(void) ;
 
 #endif
