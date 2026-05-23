@@ -35,4 +35,4 @@ static void  throttleA_exit(void) {
 
 module_init(throttleA_init)
 module_exit(throttleA_exit)
-MODULE_LICENSE("MIT");
+MODULE_LICENSE("Dual MIT/GPL");

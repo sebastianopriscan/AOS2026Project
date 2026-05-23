@@ -2,16 +2,15 @@ ifneq ($(KERNELRELEASE),)
 
 obj-m += throttleA.o
 
-ccflags-y:= -I ${src} -I ${src}/lib
+ccflags-y:= -I ${src} -I ${src}/lib -std=gnu11
 
-throttleA-y := mod_main.o api/api.o api/ioctl.o
+throttleA-y := mod_main.o api/api.o api/ioctl.o hash_table/hash_table.o preempt_kprobe/preempt_kprobe.o probing/probing.o
+throttleA-y += throttler_status/throttler_status.o timers/timers.o
 
 else
 
-TABLE_ADDR = $(shell sudo cat /sys/module/the_usctm/parameters/sys_call_table_address)
-
 start:
-	sudo insmod throttleA.ko the_syscall_table=$(TABLE_ADDR)
+	sudo insmod throttleA.ko 
 	sudo mknod /dev/throttleA-api c $$(sudo cat /sys/module/throttleA/parameters/major) 0
 
 stop:
@@ -19,14 +18,12 @@ stop:
 	sudo rmmod throttleA.ko
 
 all:
-	./utils/password_gen/passwordgen.sh
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
-	rm ./password_setup/password.c
 
 clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
 bundle:
-	zip bundle.zip -r ./* -x bundle.zip -x .vscode
+	tar -czf bundle.tgz --exclude=bundle.tgz --exclude=.vscode ./*
 
 endif

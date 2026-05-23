@@ -44,9 +44,9 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     printk("%s code is %#08x, code & CODE_MASK is %#08x", MODNAME, code, code & CODE_MASK) ;
 
     // Handlers for when argp is not needed
-    if (code & CODE_MASK == THROTTLER_SET_ENABLE) {
+    if ((code & CODE_MASK) == THROTTLER_SET_ENABLE) {
         return set_throttler_on() ;
-    } else if (code & CODE_MASK == THROTTLER_SET_DISABLE) {
+    } else if ((code & CODE_MASK) == THROTTLER_SET_DISABLE) {
         return set_throttler_off() ;
     }
 
@@ -80,7 +80,7 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     printk("%s: Copied data from user buffer", MODNAME) ;
 
     if ((argp_copied->syscalls_size + sizeof(throttleA_policy)) != size ) {
-        printk("%s: Error, the policy's declared size doesn't match what provided in the ioctl code, expected %d, got %d", MODNAME, size, sizeof(throttleA_policy) + argp_copied->syscalls_size) ;
+        printk("%s: Error, the policy's declared size doesn't match what provided in the ioctl code, expected %d, got %ld", MODNAME, size, sizeof(throttleA_policy) + argp_copied->syscalls_size) ;
         kmem_cache_free(policies_cache, argp_copied) ;
         return -EACCES ;
     }

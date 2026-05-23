@@ -19,6 +19,6 @@ int enable_monitor(void) ;
  * This function does not check if the probe has already been installed nor has
  * locking mechanisms
  */
-int disable_monitor(void) ;
+void disable_monitor(void) ;
 
 #endif

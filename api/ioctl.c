@@ -35,5 +35,5 @@ ssize_t set_throttler_off() {
 }
 
 throttleA_policy *dump_throttleA_status() {
-
+    return NULL ;
 }

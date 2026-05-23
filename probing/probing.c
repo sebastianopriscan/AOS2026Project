@@ -18,6 +18,46 @@
 
 const char syscall_handler_name[] = "do_syscall_64" ;
 
+/**
+ * get_mm_exe_file - acquire a reference to the mm's executable file
+ *
+ * Returns %NULL if mm has no associated executable file.
+ * User must release file via fput().
+ */
+struct file *get_mm_exe_file(struct mm_struct *mm)
+{
+	struct file *exe_file;
+
+	rcu_read_lock();
+	exe_file = rcu_dereference(mm->exe_file);
+	if (exe_file && !get_file_rcu(exe_file))
+		exe_file = NULL;
+	rcu_read_unlock();
+	return exe_file;
+}
+
+/**
+ * get_task_exe_file - acquire a reference to the task's executable file
+ *
+ * Returns %NULL if task's mm (if any) has no associated executable file or
+ * this is a kernel thread with borrowed mm (see the comment above get_task_mm).
+ * User must release file via fput().
+ */
+struct file *get_task_exe_file(struct task_struct *task)
+{
+	struct file *exe_file = NULL;
+	struct mm_struct *mm;
+
+	task_lock(task);
+	mm = task->mm;
+	if (mm) {
+		if (!(task->flags & PF_KTHREAD))
+			exe_file = get_mm_exe_file(mm);
+	}
+	task_unlock(task);
+	return exe_file;
+}
+
 static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
     struct pt_regs *syscall_regs = ((struct pt_regs *)regs->di) ;
     const unsigned long syscall_code = syscall_regs->ax ;
@@ -30,12 +70,14 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
     if (status == ON) {
         unsigned int again ;
         do {
+            int contained = 0 ;
             policy_with_table *policy = hash_table_get(thread_uid.val, thread_name) ;
+            unsigned int tolerance = policy->policy.tolerance ;
+
             if (policy == NULL || !(atomic_read(&policy->isActive))) {
                 hash_table_put() ;
                 break;
             } ;
-            int contained = 0 ;
             for (int i = 0; i < policy->policy.syscalls_size ; i++) {
                 if (syscall_code == policy->policy.syscalls[i]) {
                     contained = 1 ;
@@ -46,7 +88,6 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
                 hash_table_put() ;
                 break;
             }
-            unsigned int tolerance = policy->policy.tolerance ;
             again = 0 ;
             if(atomic_long_read(&policy->throttle_counter) >= tolerance) {
                 hash_table_put() ;
@@ -60,10 +101,13 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
     up_throttler_status(THROTTLER_LOCK_READ) ;
     
     fput(thread_file) ;
+
+    return 0 ;
 }
 
 struct kprobe throttler_kprobe = {
-    .symbol_name = syscall_handler_name
+    .symbol_name = syscall_handler_name,
+    .pre_handler = throttler,
 };
 
 int enable_monitor(void) {
@@ -77,6 +121,6 @@ int enable_monitor(void) {
     return ret ;
 }
 
-int disable_monitor(void) {
+void disable_monitor(void) {
     unregister_kprobe(&throttler_kprobe) ;
 }

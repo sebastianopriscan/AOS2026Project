@@ -27,7 +27,8 @@ do {\
             table = &PROGRAM_UID_TABLE ; \
             break ; \
         default: \
-            return -ENOKEY ; \
+            table = NULL ; \
+            break ; \
     } \
 } while (0) \
 
@@ -42,7 +43,7 @@ struct hash_table {
 
 static struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
 
-static inline int evaluate_hash(int uid, char *name) {
+static inline int evaluate_hash(int uid, const char *name) {
     int hash = uid ;
     const int len = strlen(name) ;
     for (int i = 0; i < len; i += sizeof(int)) {
@@ -69,19 +70,26 @@ void init_hash_table(void) {
 
 int hash_table_insert(throttleA_policy *policy) {
     struct hash_table *table;
+    int idx ;
+    struct list_head *list ;
+    struct rw_semaphore *sem ;
+    policy_with_table *pt ;
+
     table_from_policy(table, policy->policy) ;
 
-    policy_with_table *pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
+    if (table == NULL) return -ENOKEY ;
+
+    pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
     if (pt == NULL) {
         return 1 ;
     }
     memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
     atomic_long_set(&pt->throttle_counter, 0) ;
-    atomic_long_set(&pt->isActive, 1) ;
+    atomic_set(&pt->isActive, 1) ;
 
-    int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &table->records[idx].overflow_list;
-    struct rw_semaphore *sem = &table->records[idx].sem ;
+    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    list = &table->records[idx].overflow_list;
+    sem = &table->records[idx].sem ;
     down_write(sem) ;
     list_add_rcu(list, &pt->hash_head) ;
     list_add(list, &pt->hash_head) ;
@@ -92,13 +100,18 @@ int hash_table_insert(throttleA_policy *policy) {
 
 int hash_table_remove(throttleA_policy *policy) {
     struct hash_table *table;
+    int idx ;
+    struct list_head *list, *pos ;
+    struct rw_semaphore *sem ;
+
     table_from_policy(table, policy->policy) ;
 
-    int idx = evaluate_hash(policy->uid, policy->path.pathName) ;
-    struct list_head *list = &table->records[idx].overflow_list ;
-    struct rw_semaphore *sem = &table->records[idx].sem ;
+    if (table == NULL) return -ENOKEY ;
 
-    struct list_head *pos ;
+    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    list = &table->records[idx].overflow_list ;
+    sem = &table->records[idx].sem ;
+
     list_for_each(pos, list) {
         policy_with_table *table = list_entry(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
@@ -119,12 +132,15 @@ int hash_table_remove(throttleA_policy *policy) {
 
 static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, const char *pathName) {
     struct hash_table *table;
+    int idx ;
+    struct list_head *list, *pos ;
+
     table_from_policy(table, policy) ;
+    if (table == NULL) return NULL ;
 
-    int idx = evaluate_hash(uid, pathName) ;
-    struct list_head *list = &table->records[idx].overflow_list ;
+    idx = evaluate_hash(uid, pathName) ;
+    list = &table->records[idx].overflow_list ;
 
-    struct list_head *pos ;
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = uid == table->policy.uid ;

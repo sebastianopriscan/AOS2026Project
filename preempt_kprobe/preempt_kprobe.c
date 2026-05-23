@@ -33,7 +33,7 @@ static void probe_dummy(void*) {
 
 static int search_kprobe_context_pointer(struct kretprobe_instance *ri, struct pt_regs *the_regs) { 
 
-	unsigned long* temp = (unsigned long)&kprobe_context_pointer;
+	unsigned long* temp = (unsigned long *) this_cpu_ptr(&kprobe_context_pointer);
 
 	while (temp > 0) {
         //brute force search of the current_kprobe per-CPU variable
@@ -65,7 +65,7 @@ void reset_kprobe_context(void) {
     if (STATUS == ON) {
         unsigned long *current_kprobe_context_pointer ; //Question: would current_kprobe be sufficient?
         current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-        __this_cpu_write(*current_kprobe_context_pointer, NULL) ;
+        __this_cpu_write(*current_kprobe_context_pointer, 0UL) ;
     }
     up_read(&internal_semaphore) ;
 }
@@ -76,17 +76,18 @@ void set_kprobe_context(struct kprobe *probe) {
         unsigned long *current_kprobe_context_pointer ;
         //Question: would current_kprobe be sufficient?
         current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-        __this_cpu_write(*current_kprobe_context_pointer, probe) ;
+        __this_cpu_write(*current_kprobe_context_pointer, (unsigned long) probe) ;
     }
     up_read(&internal_semaphore) ;
 }
 
 int setup_preempt_kprobe(void) {
+	int ret ;
 
     init_rwsem(&internal_semaphore) ;
 
     down_write(&internal_semaphore) ;
-	int ret = register_kretprobe(&setup_probe);
+	ret = register_kretprobe(&setup_probe);
 	if (ret < 0) {
         up_write(&internal_semaphore) ;
 		return ret;
@@ -110,5 +111,4 @@ int setup_preempt_kprobe(void) {
     up_write(&internal_semaphore) ;
 
     return 0 ;
-
 }

@@ -86,7 +86,7 @@ ssize_t throttleA_policy_rm(throttleA_policy *) ;
 */
 #define THROTTLER_SET_ENABLE 0x40000000
 
-ssize_t set_throttler_on() ;
+ssize_t set_throttler_on(void) ;
 
 /******** Operation setThrottler: ********
     OPCODE    : 0b011
@@ -99,7 +99,7 @@ ssize_t set_throttler_on() ;
 */
 #define THROTTLER_SET_DISABLE 0x60000000
 
-ssize_t set_throttler_off() ;
+ssize_t set_throttler_off(void) ;
 
 
 /*********** Read related API **********/
@@ -107,7 +107,7 @@ ssize_t set_throttler_off() ;
 /**
  * Returns an array containing all the set dumps
  */
-throttleA_policy *dump_throttleA_status() ;
+throttleA_policy *dump_throttleA_status(void) ;
 
 
 /*********** Lifecycle operations **********/

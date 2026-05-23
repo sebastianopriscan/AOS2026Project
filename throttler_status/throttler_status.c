@@ -16,11 +16,6 @@
 
 static struct rw_semaphore status_sem ;
 
-typedef enum {
-    ON,
-    OFF
-} THROTTLER_STATUS;
-
 THROTTLER_STATUS STATUS = OFF ;
 
 void setup_throttler_status(void) {
@@ -56,17 +51,19 @@ void set_throttler_status_off(void) {
 }
 
 THROTTLER_STATUS get_throttler_status() {
+    THROTTLER_STATUS read_status ;
+
     down_read(&status_sem) ;
-    THROTTLER_STATUS read_status = STATUS;
+    read_status = STATUS;
     up_read(&status_sem) ;
     return read_status ;
 }
 
 void up_throttler_status(THROTTLER_LOCK lockKind) {
     lockKind == THROTTLER_LOCK_READ ? down_read(&status_sem) : down_write(&status_sem) ;
-    return STATUS ;
 }
 
 THROTTLER_STATUS down_throttler_status(THROTTLER_LOCK lockKind) {
     lockKind == THROTTLER_LOCK_READ ? up_read(&status_sem) : up_write(&status_sem) ;
+    return STATUS ;
 }

@@ -26,13 +26,13 @@ static enum hrtimer_restart throttler_poller(struct hrtimer *timer) {
     atomic_xchg(&current_mode, POLLER_REFRESHING) ;
     wake_up(&throttler_waitqueue) ;
     hash_table_refresh() ;
-    atomic_long_xchg(&current_mode, POLLER_SLEEPING) ;
+    atomic_xchg(&current_mode, POLLER_SLEEPING) ;
     wake_up(&throttler_waitqueue) ;
     return HRTIMER_RESTART ;
 }
 
 void setup_timers(void) {
-    atomic_long_xchg(&current_mode, POLLER_SLEEPING) ;
+    atomic_xchg(&current_mode, POLLER_SLEEPING) ;
     hrtimer_init(&throttler_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL) ;
     throttler_timer.function = throttler_poller ;
     oneSecond = ktime_set(1,0) ;
