@@ -58,14 +58,8 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     }
 
     size = code & ~CODE_MASK ;
-    if(size < sizeof(throttleA_policy)) { 
+    if(size != sizeof(throttleA_policy)) { 
         printk("%s: Data pointed by argp was not of correct size", MODNAME) ; 
-        kmem_cache_free(policies_cache, argp_copied) ;
-        return 1 ; 
-    } 
-
-    if(size > (sizeof(throttleA_policy) + 467 * sizeof(int))) { 
-        printk("%s: Data pointed by argp was bigger that the maximum allowed size", MODNAME) ; 
         kmem_cache_free(policies_cache, argp_copied) ;
         return 1 ; 
     } 
@@ -79,8 +73,8 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
 
     printk("%s: Copied data from user buffer", MODNAME) ;
 
-    if ((argp_copied->syscalls_size + sizeof(throttleA_policy)) != size ) {
-        printk("%s: Error, the policy's declared size doesn't match what provided in the ioctl code, expected %d, got %ld", MODNAME, size, sizeof(throttleA_policy) + argp_copied->syscalls_size) ;
+    if ((sizeof(throttleA_policy)) != size ) {
+        printk("%s: Error, the policy's declared size doesn't match what provided in the ioctl code, expected %d, got %ld", MODNAME, size, sizeof(throttleA_policy)) ;
         kmem_cache_free(policies_cache, argp_copied) ;
         return -EACCES ;
     }
@@ -92,6 +86,10 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
             return retval ;
         case RM_POLICY :
             retval = throttleA_policy_rm(argp_copied) ;
+            kmem_cache_free(policies_cache, argp_copied) ;
+            return retval ;
+        case DELETE_POLICY :
+            retval = throttleA_policy_delete(argp_copied) ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
         default :

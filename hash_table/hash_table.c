@@ -71,7 +71,7 @@ void init_hash_table(void) {
 int hash_table_insert(throttleA_policy *policy) {
     struct hash_table *table;
     int idx ;
-    struct list_head *list ;
+    struct list_head *list, *pos ;
     struct rw_semaphore *sem ;
     policy_with_table *pt ;
 
@@ -91,8 +91,43 @@ int hash_table_insert(throttleA_policy *policy) {
     list = &table->records[idx].overflow_list;
     sem = &table->records[idx].sem ;
     down_write(sem) ;
-    list_add_rcu(list, &pt->hash_head) ;
-    list_add(list, &pt->hash_head) ;
+    list_for_each_rcu(pos, list) {
+        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
+        const int uid_condition = policy->uid == table->policy.uid ;
+        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        if (uid_condition && path_condition) {
+
+            pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
+            if (pt == NULL) {
+                up_write(sem) ;
+                return 1 ;
+            }
+            memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
+            atomic_long_set(&pt->throttle_counter, 0) ;
+            atomic_set(&pt->isActive, 1) ;
+
+            for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
+                pt->policy.syscalls[i] |= table->policy.syscalls[i] ;
+            }
+
+            list_replace_rcu(&table->hash_head, &pt->hash_head) ;
+            up_write(sem) ;
+            synchronize_rcu() ;
+            kfree(table) ;
+            return 0 ;
+        }
+    }
+
+    pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
+    if (pt == NULL) {
+        up_write(sem) ;
+        return 1 ;
+    }
+    memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
+    atomic_long_set(&pt->throttle_counter, 0) ;
+    atomic_set(&pt->isActive, 1) ;
+
+    list_add_rcu(&pt->hash_head,list) ;
     up_write(sem) ;
 
     return 0 ;
@@ -112,14 +147,60 @@ int hash_table_remove(throttleA_policy *policy) {
     list = &table->records[idx].overflow_list ;
     sem = &table->records[idx].sem ;
 
-    list_for_each(pos, list) {
-        policy_with_table *table = list_entry(pos, policy_with_table, hash_head) ;
+    down_write(sem) ;
+    list_for_each_rcu(pos, list) {
+        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
         const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
-            down_write(sem) ;
             atomic_xchg(&table->isActive,0) ;
             list_del_rcu(pos) ;
+            up_write(sem) ;
+            synchronize_rcu() ;
+            kfree(table) ;
+            break ;
+        }
+    }
+
+    return 0 ;
+}
+
+int hash_table_delete(throttleA_policy *policy) {
+    struct hash_table *table;
+    int idx ;
+    struct list_head *list, *pos ;
+    struct rw_semaphore *sem ;
+    policy_with_table *pt ;
+
+    table_from_policy(table, policy->policy) ;
+
+    if (table == NULL) return -ENOKEY ;
+
+    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    list = &table->records[idx].overflow_list ;
+    sem = &table->records[idx].sem ;
+
+    down_write(sem) ;
+    list_for_each_rcu(pos, list) {
+        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
+        const int uid_condition = policy->uid == table->policy.uid ;
+        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        if (uid_condition && path_condition) {
+
+            pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
+            if (pt == NULL) {
+                up_write(sem) ;
+                return 1 ;
+            }
+            memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
+            atomic_long_set(&pt->throttle_counter, 0) ;
+            atomic_set(&pt->isActive, 1) ;
+
+            for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
+                pt->policy.syscalls[i] = table->policy.syscalls[i] & ~pt->policy.syscalls[i] ;
+            }
+
+            list_replace_rcu(&table->hash_head, &pt->hash_head) ;
             up_write(sem) ;
             synchronize_rcu() ;
             kfree(table) ;

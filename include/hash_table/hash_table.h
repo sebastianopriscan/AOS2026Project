@@ -5,9 +5,9 @@
 
 struct _policy_with_table {
     struct list_head hash_head ;
-    throttleA_policy policy ;
     atomic_long_t throttle_counter ;
     atomic_t isActive ;
+    throttleA_policy policy ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
 
@@ -29,6 +29,12 @@ int hash_table_insert(throttleA_policy *policy) ;
  * @param policy: The policy to be removed
  */
 int hash_table_remove(throttleA_policy *policy) ;
+
+/**
+ * Delete syscalls from a policy from the hash table
+ * @param policy: The policy containing the entries to be removed
+ */
+int hash_table_delete(throttleA_policy *policy) ;
 
 /**
  * Get a policy table entry

@@ -31,7 +31,7 @@ static void probe_dummy(void*) {
     return ;
 }
 
-static int search_kprobe_context_pointer(struct kretprobe_instance *ri, struct pt_regs *the_regs) { 
+static int search_kprobe_context_pointer(struct kprobe *kp, struct pt_regs *the_regs) { 
 
 	unsigned long* temp = (unsigned long *) this_cpu_ptr(&kprobe_context_pointer);
 
@@ -41,7 +41,7 @@ static int search_kprobe_context_pointer(struct kretprobe_instance *ri, struct p
         //you can save this time setting up a per CPU-variable via 
         //smp_call_function() upon module startup
         temp -= 1; 
-        if ((unsigned long) __this_cpu_read(*temp) == (unsigned long) &ri->rph->rp->kp) {
+        if (*temp == (unsigned long) kp) {
             atomic_inc((atomic_t*)&SEARCH_COUNTER);//mention we have found the target 
             break;
         }
@@ -53,11 +53,9 @@ static int search_kprobe_context_pointer(struct kretprobe_instance *ri, struct p
 	return 0;
 }
 
-static struct kretprobe setup_probe = {
-    .kp.symbol_name = setup_taget_func,
-    .handler = NULL,
-    .entry_handler = search_kprobe_context_pointer,
-    .maxactive = -1
+static struct kprobe setup_probe = {
+    .symbol_name = setup_taget_func,
+    .pre_handler = search_kprobe_context_pointer
 } ;  
 
 void reset_kprobe_context(void) {
@@ -87,7 +85,7 @@ int setup_preempt_kprobe(void) {
     init_rwsem(&internal_semaphore) ;
 
     down_write(&internal_semaphore) ;
-	ret = register_kretprobe(&setup_probe);
+	ret = register_kprobe(&setup_probe);
 	if (ret < 0) {
         up_write(&internal_semaphore) ;
 		return ret;
@@ -100,7 +98,7 @@ int setup_preempt_kprobe(void) {
 
 	put_cpu();
 
-	unregister_kretprobe(&setup_probe);
+	unregister_kprobe(&setup_probe);
 
 	if(SEARCH_COUNTER != num_online_cpus()){
         up_write(&internal_semaphore) ;

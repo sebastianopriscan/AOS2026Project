@@ -18,13 +18,19 @@ MODULE_DESCRIPTION("This module implements a throttler for system calls invocati
 
 #include "include/api/api.h"
 #include "include/throttler_status/throttler_status.h"
+#include "include/preempt_kprobe/preempt_kprobe.h"
+#include "include/hash_table/hash_table.h"
 
 static int throttleA_init(void) {
 
+	init_hash_table() ;
+	setup_throttler_status();
+	if (setup_preempt_kprobe() != 0) {
+		return 1 ;
+	}
 	if (setup_api() != 0) {
 		return 1 ;
 	}
-	setup_throttler_status();
 	return 0 ;
 }
 

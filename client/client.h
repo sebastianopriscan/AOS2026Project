@@ -1,5 +1,5 @@
-#ifndef API_H
-#define API_H
+#ifndef CLIENT_H
+#define CLIENT_H
 
 #include <linux/limits.h>
 
@@ -26,7 +26,8 @@ typedef struct _throttleA_path throttleA_path ;
 enum policy_kind {
     POLICY_UID_ONLY = 0,
     POLICY_PROGRAM_ONLY = 1,
-    POLICY_UID_AND_PROGRAM = 2
+    POLICY_UID_AND_PROGRAM = 2,
+    POLICY_NONE = 3
 } ;
 typedef enum policy_kind policy_kind ;
 
@@ -63,8 +64,6 @@ typedef struct _throttleA_policy throttleA_policy ;
 #define ADD_POLICY 0x00000000
 
 
-ssize_t throttleA_policy_add(throttleA_policy *) ;
-
 /******** Operation removePolicy: ********
     OPCODE    : 0b001
     OPMACRO   : RM_POLICY
@@ -75,21 +74,6 @@ ssize_t throttleA_policy_add(throttleA_policy *) ;
     Description : removes a given policy
 */
 #define RM_POLICY 0x20000000
-
-ssize_t throttleA_policy_rm(throttleA_policy *) ;
-
-/******** Operation deletePolicy: ********
-    OPCODE    : 0b100
-    OPMACRO   : DELETE_POLICY
-    OPARG     : struct throttleA_policy
-    OPARGTYPE : IN
-    ARGSIZE   : sizeof(struct throttleA_policy)
-
-    Description : deletes the given syscalls from the given policy
-*/
-#define DELETE_POLICY 0x80000000
-
-ssize_t throttleA_policy_delete(throttleA_policy *) ;
 
 /******** Operation setThrottler: ********
     OPCODE    : 0b010
@@ -102,8 +86,6 @@ ssize_t throttleA_policy_delete(throttleA_policy *) ;
 */
 #define THROTTLER_SET_ENABLE 0x40000000
 
-ssize_t set_throttler_on(void) ;
-
 /******** Operation setThrottler: ********
     OPCODE    : 0b011
     OPMACRO   : THROTTLER_SET_DISABLE
@@ -114,21 +96,5 @@ ssize_t set_throttler_on(void) ;
     Description : sets the throttler's on/off state
 */
 #define THROTTLER_SET_DISABLE 0x60000000
-
-ssize_t set_throttler_off(void) ;
-
-
-/*********** Read related API **********/
-
-/**
- * Returns an array containing all the set dumps
- */
-throttleA_policy *dump_throttleA_status(void) ;
-
-
-/*********** Lifecycle operations **********/
-
-int setup_api(void) ;
-void cleanup_api(void) ;
 
 #endif

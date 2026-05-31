@@ -24,6 +24,10 @@ ssize_t throttleA_policy_rm(throttleA_policy *policy) {
     return (ssize_t) hash_table_remove(policy) ;
 }
 
+ssize_t throttleA_policy_delete(throttleA_policy *policy) {
+    return (ssize_t) hash_table_delete(policy) ;
+}
+
 ssize_t set_throttler_on() {
     set_throttler_status_on() ;
     return 0 ;
