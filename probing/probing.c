@@ -72,7 +72,7 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
         do {
             int contained = 0 ;
             policy_with_table *policy = hash_table_get(thread_uid.val, thread_name) ;
-            unsigned int tolerance = policy->policy.tolerance ;
+            unsigned int tolerance = atomic_read(&policy->policy.tolerance) ;
             unsigned long bitmask ;
 
             if (policy == NULL || !(atomic_read(&policy->isActive))) {
@@ -80,7 +80,7 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
                 break;
             } ;
             bitmask = 1UL << (syscall_code % (sizeof(unsigned long) *8)) ;
-            contained = policy->policy.syscalls[syscall_code / (sizeof(unsigned long) *8)] & bitmask ;
+            contained = atomic_long_read(&policy->policy.syscalls[syscall_code / (sizeof(unsigned long) *8)]) & bitmask ;
             if (!contained) {
                 hash_table_put() ;
                 break;

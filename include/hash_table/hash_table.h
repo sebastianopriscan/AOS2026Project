@@ -7,7 +7,7 @@ struct _policy_with_table {
     struct list_head hash_head ;
     atomic_long_t throttle_counter ;
     atomic_t isActive ;
-    throttleA_policy policy ;
+    throttleA_policy_internal policy ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
 

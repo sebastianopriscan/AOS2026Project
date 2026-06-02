@@ -74,56 +74,50 @@ int hash_table_insert(throttleA_policy *policy) {
     struct list_head *list, *pos ;
     struct rw_semaphore *sem ;
     policy_with_table *pt ;
+    char hit = 0;
 
     table_from_policy(table, policy->policy) ;
 
     if (table == NULL) return -ENOKEY ;
 
-    pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
-    if (pt == NULL) {
-        return 1 ;
-    }
-    memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
-    atomic_long_set(&pt->throttle_counter, 0) ;
-    atomic_set(&pt->isActive, 1) ;
-
     idx = evaluate_hash(policy->uid, policy->path.pathName) ;
     list = &table->records[idx].overflow_list;
     sem = &table->records[idx].sem ;
-    down_write(sem) ;
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
         const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
 
-            pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
-            if (pt == NULL) {
-                up_write(sem) ;
-                return 1 ;
-            }
-            memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
-            atomic_long_set(&pt->throttle_counter, 0) ;
-            atomic_set(&pt->isActive, 1) ;
-
             for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-                pt->policy.syscalls[i] |= table->policy.syscalls[i] ;
+                atomic_long_xor(policy->syscalls[i], &table->policy.syscalls[i]) ;
             }
 
-            list_replace_rcu(&table->hash_head, &pt->hash_head) ;
-            up_write(sem) ;
-            synchronize_rcu() ;
-            kfree(table) ;
-            return 0 ;
+            if (policy->tolerance != 0) {
+                atomic_xchg(&table->policy.tolerance, policy->tolerance) ;
+            }
+
+            hit = 1 ;
+            break ;
         }
     }
+
+    if (hit) return 0 ;
+    down_write(sem) ;
 
     pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
     if (pt == NULL) {
         up_write(sem) ;
         return 1 ;
     }
-    memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
+    memcpy(&pt->policy.path, &policy->path, sizeof(throttleA_path)) ;
+    pt->policy.policy = policy->policy ;
+    for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
+        atomic_long_set(&pt->policy.syscalls[i], policy->syscalls[i]) ;
+    }
+    atomic_set(&pt->policy.tolerance, policy->tolerance) ;
+    pt->policy.uid = policy->uid ;
+
     atomic_long_set(&pt->throttle_counter, 0) ;
     atomic_set(&pt->isActive, 1) ;
 
@@ -169,8 +163,6 @@ int hash_table_delete(throttleA_policy *policy) {
     struct hash_table *table;
     int idx ;
     struct list_head *list, *pos ;
-    struct rw_semaphore *sem ;
-    policy_with_table *pt ;
 
     table_from_policy(table, policy->policy) ;
 
@@ -178,30 +170,17 @@ int hash_table_delete(throttleA_policy *policy) {
 
     idx = evaluate_hash(policy->uid, policy->path.pathName) ;
     list = &table->records[idx].overflow_list ;
-    sem = &table->records[idx].sem ;
 
-    down_write(sem) ;
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
         const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
 
-            pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
-            if (pt == NULL) {
-                up_write(sem) ;
-                return 1 ;
-            }
-            memcpy(&pt->policy, policy, sizeof(throttleA_policy)) ;
-            atomic_long_set(&pt->throttle_counter, 0) ;
-            atomic_set(&pt->isActive, 1) ;
-
             for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-                pt->policy.syscalls[i] = table->policy.syscalls[i] & ~pt->policy.syscalls[i] ;
+                atomic_long_andnot(policy->syscalls[i], &table->policy.syscalls[i]) ;
             }
 
-            list_replace_rcu(&table->hash_head, &pt->hash_head) ;
-            up_write(sem) ;
             synchronize_rcu() ;
             kfree(table) ;
             break ;

@@ -24,6 +24,6 @@ clean:
 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
 
 bundle:
-	tar -czf bundle.tgz --exclude=bundle.tgz --exclude=.vscode ./*
+	tar -czf bundle.tgz --exclude=bundle.tgz --exclude=.vscode --exclude=throttleA.ko ./*
 
 endif

@@ -75,6 +75,17 @@ typedef struct _throttleA_policy throttleA_policy ;
 */
 #define RM_POLICY 0x20000000
 
+/******** Operation deletePolicy: ********
+    OPCODE    : 0b100
+    OPMACRO   : DELETE_POLICY
+    OPARG     : struct throttleA_policy
+    OPARGTYPE : IN
+    ARGSIZE   : sizeof(struct throttleA_policy)
+
+    Description : deletes the given syscalls from the given policy
+*/
+#define DELETE_POLICY 0x80000000
+
 /******** Operation setThrottler: ********
     OPCODE    : 0b010
     OPMACRO   : THROTTLER_SET_ENABLE

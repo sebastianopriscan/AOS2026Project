@@ -3,3 +3,5 @@ bundle.tgz
 
 **/*.o
 **/*.ko
+
+client/throttlectl

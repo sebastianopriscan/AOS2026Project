@@ -51,6 +51,18 @@ struct _throttleA_policy {
 } ;
 typedef struct _throttleA_policy throttleA_policy ;
 
+/**
+ * Internal version with atomic types
+ */
+struct _throttleA_policy_internal {
+    policy_kind policy;
+    unsigned int uid ;
+    throttleA_path path;
+    atomic_t tolerance ;
+    atomic_long_t syscalls[DATA_PER_LIMIT(unsigned long)] ;
+} ;
+typedef struct _throttleA_policy_internal throttleA_policy_internal ;
+
 /******** Operation addPolicy: ********
     OPCODE    : 0b000
     OPMACRO   : ADD_POLICY
