@@ -15,17 +15,39 @@
 #include "include/api/api.h"
 #include "include/hash_table/hash_table.h"
 #include "include/throttler_status/throttler_status.h"
+#include "include/oracles/oracles.h"
 
 ssize_t throttleA_policy_add(throttleA_policy *policy) {
-    return (ssize_t) hash_table_insert(policy) ;
+    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    ssize_t ret ;
+    if (IS_ERR_OR_NULL(fullPath)) {
+        return (ssize_t) PTR_ERR(fullPath) ;
+    }
+    ret = (ssize_t) hash_table_insert(policy, fullPath) ;
+    kfree(fullPath) ;
+    return ret ;
 }
 
 ssize_t throttleA_policy_rm(throttleA_policy *policy) {
-    return (ssize_t) hash_table_remove(policy) ;
+    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    ssize_t ret ;
+    if (IS_ERR_OR_NULL(fullPath)) {
+        return (ssize_t) PTR_ERR(fullPath) ;
+    }
+    ret = (ssize_t) hash_table_remove(policy, fullPath) ;
+    kfree(fullPath) ;
+    return ret ;
 }
 
 ssize_t throttleA_policy_delete(throttleA_policy *policy) {
-    return (ssize_t) hash_table_delete(policy) ;
+    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    ssize_t ret ;
+    if (IS_ERR_OR_NULL(fullPath)) {
+        return (ssize_t) PTR_ERR(fullPath) ;
+    }
+    ret = (ssize_t) hash_table_delete(policy, fullPath) ;
+    kfree(fullPath) ;
+    return ret ;
 }
 
 ssize_t set_throttler_on() {

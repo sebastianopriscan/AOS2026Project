@@ -11,6 +11,7 @@
 #include <linux/version.h>
 
 #include "include/hash_table/hash_table.h"
+#include "include/sys_mirror/sys_mirror.h"
 
 #define MODULUS 193
 
@@ -57,7 +58,7 @@ static inline int evaluate_hash(int uid, const char *name) {
     return hash % MODULUS ;
 }
 
-void init_hash_table(void) {
+int init_hash_table(void) {
     for (int i = 0; i < MODULUS; i++) {
         INIT_LIST_HEAD(&PROGRAM_UID_TABLE.records[i].overflow_list) ;
         init_rwsem(&PROGRAM_UID_TABLE.records[i].sem) ;
@@ -66,31 +67,33 @@ void init_hash_table(void) {
         INIT_LIST_HEAD(&PROGRAM_TABLE.records[i].overflow_list) ;
         init_rwsem(&PROGRAM_TABLE.records[i].sem) ;
     }
+
+    return init_ht_sys_mirror() ;
 }
 
-int hash_table_insert(throttleA_policy *policy) {
+int hash_table_insert(throttleA_policy *policy, char *fullPath) {
     struct hash_table *table;
-    int idx ;
+    int idx, sysFsRet ;
     struct list_head *list, *pos ;
     struct rw_semaphore *sem ;
     policy_with_table *pt ;
-    char hit = 0;
+    char hit = 0 ;
 
     table_from_policy(table, policy->policy) ;
 
     if (table == NULL) return -ENOKEY ;
 
-    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    idx = evaluate_hash(policy->uid, fullPath) ;
     list = &table->records[idx].overflow_list;
     sem = &table->records[idx].sem ;
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
 
             for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-                atomic_long_xor(policy->syscalls[i], &table->policy.syscalls[i]) ;
+                atomic_long_or(policy->syscalls[i], &table->policy.syscalls[i]) ;
             }
 
             if (policy->tolerance != 0) {
@@ -103,6 +106,7 @@ int hash_table_insert(throttleA_policy *policy) {
     }
 
     if (hit) return 0 ;
+
     down_write(sem) ;
 
     pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
@@ -110,7 +114,7 @@ int hash_table_insert(throttleA_policy *policy) {
         up_write(sem) ;
         return 1 ;
     }
-    memcpy(&pt->policy.path, &policy->path, sizeof(throttleA_path)) ;
+    memcpy(&pt->policy.path.pathName, fullPath, PATH_MAX) ;
     pt->policy.policy = policy->policy ;
     for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
         atomic_long_set(&pt->policy.syscalls[i], policy->syscalls[i]) ;
@@ -122,14 +126,23 @@ int hash_table_insert(throttleA_policy *policy) {
     atomic_set(&pt->isActive, 1) ;
 
     list_add_rcu(&pt->hash_head,list) ;
+
+    sysFsRet = sys_mirror_add(pt) ;
+    if (sysFsRet) {
+        list_del_rcu(&pt->hash_head) ;        
+        kfree(pt) ;
+        up_write(sem) ;
+        return sysFsRet ;
+    }
+
     up_write(sem) ;
 
     return 0 ;
 }
 
-int hash_table_remove(throttleA_policy *policy) {
+int hash_table_remove(throttleA_policy *policy, char *fullPath) {
     struct hash_table *table;
-    int idx ;
+    int idx, ret = 0 ;
     struct list_head *list, *pos ;
     struct rw_semaphore *sem ;
 
@@ -137,7 +150,7 @@ int hash_table_remove(throttleA_policy *policy) {
 
     if (table == NULL) return -ENOKEY ;
 
-    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    idx = evaluate_hash(policy->uid, fullPath) ;
     list = &table->records[idx].overflow_list ;
     sem = &table->records[idx].sem ;
 
@@ -145,9 +158,15 @@ int hash_table_remove(throttleA_policy *policy) {
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
             atomic_xchg(&table->isActive,0) ;
+            ret = sys_mirror_rm(table) ;
+            if(ret) {
+                atomic_xchg(&table->isActive, 1) ;
+                up_write(sem) ;
+                break ;
+            }
             list_del_rcu(pos) ;
             up_write(sem) ;
             synchronize_rcu() ;
@@ -156,10 +175,10 @@ int hash_table_remove(throttleA_policy *policy) {
         }
     }
 
-    return 0 ;
+    return ret ;
 }
 
-int hash_table_delete(throttleA_policy *policy) {
+int hash_table_delete(throttleA_policy *policy, char *fullPath) {
     struct hash_table *table;
     int idx ;
     struct list_head *list, *pos ;
@@ -168,13 +187,13 @@ int hash_table_delete(throttleA_policy *policy) {
 
     if (table == NULL) return -ENOKEY ;
 
-    idx = evaluate_hash(policy->uid, policy->path.pathName) ;
+    idx = evaluate_hash(policy->uid, fullPath) ;
     list = &table->records[idx].overflow_list ;
 
     list_for_each_rcu(pos, list) {
         policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
         const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(policy->path.pathName, table->policy.path.pathName) == 0 ;
+        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
         if (uid_condition && path_condition) {
 
             for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
@@ -188,6 +207,47 @@ int hash_table_delete(throttleA_policy *policy) {
     }
 
     return 0 ;
+}
+
+static inline void clean_ht_overflow_list(struct hash_table_record *record, struct list_head *freeList) {
+    struct list_head *pos, *tmp ;
+    down_write(&record->sem) ;
+    pos = rcu_dereference(record->overflow_list.next) ;
+    do {
+        policy_with_table *table ;
+        tmp = pos ;
+        pos = rcu_dereference(pos->next) ;
+
+        table = list_entry_rcu(tmp, policy_with_table, hash_head) ;
+        atomic_xchg(&table->isActive,0) ;
+        list_del_rcu(tmp) ;
+        list_add(tmp, freeList) ;
+    } while (!list_is_head(pos, &record->overflow_list)) ;
+    up_write(&record->sem) ;
+}
+
+void cleanup_hash_table(void) {
+    struct list_head *pos, *tmp, free_list ;
+    INIT_LIST_HEAD(&free_list) ;
+
+    clean_ht_sys_mirror() ;
+
+    for (int i = 0; i < MODULUS; i++) {
+        clean_ht_overflow_list(&UID_TABLE.records[i], &free_list) ;
+        clean_ht_overflow_list(&PROGRAM_TABLE.records[i], &free_list) ;
+        clean_ht_overflow_list(&PROGRAM_UID_TABLE.records[i], &free_list) ;
+    }
+
+    synchronize_rcu() ;
+
+    pos = free_list.next ;
+    do {
+        tmp = pos ;
+        pos = pos->next ;
+
+        list_del(tmp) ;
+        kfree(tmp) ;
+    } while (!list_is_head(pos, &free_list)) ;
 }
 
 static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, const char *pathName) {

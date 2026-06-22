@@ -127,8 +127,6 @@ int setup_api(void) {
 
     major = __register_chrdev(0,0, 256, API_CHARDEV_NAME, &fops) ;
 
-    init_hash_table() ;
-
     return 0 ;
 }
 

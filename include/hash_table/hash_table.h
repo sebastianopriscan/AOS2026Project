@@ -1,6 +1,7 @@
 #ifndef HASH_TABLE_H
 #define HASH_TABLE_H
 
+#include <linux/kernel.h>
 #include "include/api/api.h"
 
 struct _policy_with_table {
@@ -8,33 +9,43 @@ struct _policy_with_table {
     atomic_long_t throttle_counter ;
     atomic_t isActive ;
     throttleA_policy_internal policy ;
+    struct kobj_attribute kobj_attribute ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
 
 /**
  * Initialize the hash table instance
  */
-void init_hash_table(void) ;
+int init_hash_table(void) ;
+
+/**
+ * Cleanup the hash table instance
+ */
+void cleanup_hash_table(void) ;
 
 /**
  * Insert a policy into the hash table
  * @param table: The hash table to insert the policy into
  * @param policy: The policy to insert
- * @return 0 in case of success, 1 otherwise
+ * @param pathName: Resolved absolute pathname from the policy
+ * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_insert(throttleA_policy *policy) ;
+int hash_table_insert(throttleA_policy *policy, char *pathName) ;
 
 /**
  * Remove a policy from the hash table
  * @param policy: The policy to be removed
+ * @param pathName: Resolved absolute pathname from the policy
+ * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_remove(throttleA_policy *policy) ;
+int hash_table_remove(throttleA_policy *policy, char *pathName) ;
 
 /**
  * Delete syscalls from a policy from the hash table
- * @param policy: The policy containing the entries to be removed
+ * @param pathName: Resolved absolute pathname from the policy
+ * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_delete(throttleA_policy *policy) ;
+int hash_table_delete(throttleA_policy *policy, char *pathName) ;
 
 /**
  * Get a policy table entry

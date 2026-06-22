@@ -5,7 +5,7 @@ obj-m += throttleA.o
 ccflags-y:= -I ${src} -I ${src}/lib -std=gnu11
 
 throttleA-y := mod_main.o api/api.o api/ioctl.o hash_table/hash_table.o preempt_kprobe/preempt_kprobe.o probing/probing.o
-throttleA-y += throttler_status/throttler_status.o timers/timers.o
+throttleA-y += throttler_status/throttler_status.o timers/timers.o oracles/oracles.o sys_mirror/sys_mirror.o
 
 else
 
