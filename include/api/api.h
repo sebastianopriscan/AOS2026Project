@@ -30,6 +30,12 @@ enum policy_kind {
 } ;
 typedef enum policy_kind policy_kind ;
 
+struct inode_descriptor {
+    dev_t device_id ;
+    unsigned long inode_number ;
+} ;
+typedef struct inode_descriptor inode_descriptor ;
+
 /**
  * Policy for the throttler. Depending on the policy_kind field, it will
  * enable throttling for a determinate user-ID and/or program name.
@@ -51,17 +57,6 @@ struct _throttleA_policy {
 } ;
 typedef struct _throttleA_policy throttleA_policy ;
 
-/**
- * Internal version with atomic types
- */
-struct _throttleA_policy_internal {
-    policy_kind policy;
-    unsigned int uid ;
-    throttleA_path path;
-    atomic_t tolerance ;
-    atomic_long_t syscalls[DATA_PER_LIMIT(unsigned long)] ;
-} ;
-typedef struct _throttleA_policy_internal throttleA_policy_internal ;
 
 /******** Operation addPolicy: ********
     OPCODE    : 0b000

@@ -3,12 +3,41 @@
 
 #include <linux/kernel.h>
 #include "include/api/api.h"
+#include "include/oracles/oracles.h"
+
+#define PATH_TABLE_SYMLINK_NAME "inode"
+
+/**
+ * Internal version with atomic types and
+ * inode support
+ */
+struct _throttleA_policy_internal {
+    policy_kind policy;
+    unsigned int uid ;
+    inode_descriptor inode ;
+    atomic_t tolerance ;
+    atomic_long_t syscalls[DATA_PER_LIMIT(unsigned long)] ;
+} ;
+typedef struct _throttleA_policy_internal throttleA_policy_internal ;
+
+struct path_with_table {
+    struct list_head overflow_list, handle_list ;
+    throttleA_path path ;
+    throttleA_policy_internal policy ;
+    unsigned long long id ;
+    bool bound ;
+    struct kobject *child, *desc, *name ;
+    struct kobj_attribute desc_attribute, path_attribute ;
+} ;
+typedef struct path_with_table path_with_table ;
 
 struct _policy_with_table {
     struct list_head hash_head ;
+    struct list_head bound_paths ;
     atomic_long_t throttle_counter ;
-    atomic_t isActive ;
+    atomic_t isActive, refCount ;
     throttleA_policy_internal policy ;
+    struct kobject *kobj ;
     struct kobj_attribute kobj_attribute ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
@@ -27,25 +56,26 @@ void cleanup_hash_table(void) ;
  * Insert a policy into the hash table
  * @param table: The hash table to insert the policy into
  * @param policy: The policy to insert
- * @param pathName: Resolved absolute pathname from the policy
+ * @param pathName: Resolved path_decree from the policy
  * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_insert(throttleA_policy *policy, char *pathName) ;
+int hash_table_insert(throttleA_policy *policy, path_decree *decree) ;
 
 /**
  * Remove a policy from the hash table
  * @param policy: The policy to be removed
- * @param pathName: Resolved absolute pathname from the policy
+ * @param decree: Resolved path_decree from the policy
  * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_remove(throttleA_policy *policy, char *pathName) ;
+int hash_table_remove(throttleA_policy *policy, path_decree *decree) ;
 
 /**
  * Delete syscalls from a policy from the hash table
- * @param pathName: Resolved absolute pathname from the policy
+ * @param policy: The policy to be deleted
+ * @param decree: Resolved path_decree from the policy
  * @return 0 in case of success, non-zero otherwise
  */
-int hash_table_delete(throttleA_policy *policy, char *pathName) ;
+int hash_table_delete(throttleA_policy *policy, path_decree *decree) ;
 
 /**
  * Get a policy table entry

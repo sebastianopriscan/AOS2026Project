@@ -18,7 +18,7 @@
 #include "include/oracles/oracles.h"
 
 ssize_t throttleA_policy_add(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    path_decree *fullPath = pathname_oracle(policy->path.pathName) ;
     ssize_t ret ;
     if (IS_ERR_OR_NULL(fullPath)) {
         return (ssize_t) PTR_ERR(fullPath) ;
@@ -29,7 +29,7 @@ ssize_t throttleA_policy_add(throttleA_policy *policy) {
 }
 
 ssize_t throttleA_policy_rm(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    path_decree *fullPath = pathname_oracle(policy->path.pathName) ;
     ssize_t ret ;
     if (IS_ERR_OR_NULL(fullPath)) {
         return (ssize_t) PTR_ERR(fullPath) ;
@@ -40,7 +40,7 @@ ssize_t throttleA_policy_rm(throttleA_policy *policy) {
 }
 
 ssize_t throttleA_policy_delete(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
+    path_decree *fullPath = pathname_oracle(policy->path.pathName) ;
     ssize_t ret ;
     if (IS_ERR_OR_NULL(fullPath)) {
         return (ssize_t) PTR_ERR(fullPath) ;

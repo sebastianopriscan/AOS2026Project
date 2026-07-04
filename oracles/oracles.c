@@ -11,6 +11,8 @@
 #include <linux/version.h>
 #include <linux/namei.h>
 
+#include "include/oracles/oracles.h"
+
 static inline char *moveFwdTo(char *cursor, char symbol, int maxLen) {
     for (int i = 0; i < maxLen; i++) {
         if (cursor[i] == symbol) return cursor +i ; 
@@ -25,23 +27,39 @@ static inline char *moveBackTo(char *cursor, char symbol, int maxLen) {
     return cursor ;
 }
 
-char *pathname_oracle(char *path) {
+path_decree *pathname_oracle(char *path) {
 
+    path_decree *decree ;
     char *buf, *cursor, *path_cursor ;
-    struct path base_path ;
+    struct path base_path, abs_path ;
+    struct inode *inode_solved ;
 
-    buf = kzalloc(PAGE_SIZE, GFP_KERNEL) ;
-    if (!buf) {
+    decree = kzalloc(sizeof(path_decree), GFP_KERNEL) ;
+    if (!decree) {
         return ERR_PTR(-ENOMEM) ;
     }
+    buf = decree->pathname ;
+    decree->path_ptr = decree->pathname ;
 
     if (path[0] == '/') {
         strncpy(buf, path, PATH_MAX) ;
         return buf;
     } else {
-        kern_path(".", 0, &base_path) ;
-        d_path(&base_path, buf, PATH_MAX) ;
+        int kern_path_ret ;
+        kern_path_ret = kern_path(".", 0, &base_path) ;
+        if (kern_path_ret) {
+            kfree(decree) ;
+            return ERR_PTR(kern_path_ret) ;
+        }
+        buf = d_path(&base_path, buf, PATH_MAX) ;
+        if (IS_ERR(buf)) {
+            path_put(&base_path) ;
+            kfree(decree) ;
+            return buf ;
+        }
+        decree->path_ptr = buf ;
     }
+    path_put(&base_path) ;
 
     cursor = buf + strlen(buf) ;
     path_cursor = path[0] == '/' ? path : path +1 ;
@@ -67,7 +85,7 @@ char *pathname_oracle(char *path) {
             if (next_cursor == path_cursor) {
                 const int len = strlen(path_cursor) ;
                 if ((cursor - buf) + len >= PATH_MAX -1) {
-                    kfree(buf) ;
+                    kfree(decree) ;
                     return ERR_PTR(-E2BIG) ; 
                 }
                 memcpy(cursor, path_cursor, len) ;
@@ -76,7 +94,7 @@ char *pathname_oracle(char *path) {
             } else {
                 const int len = next_cursor - path_cursor ;
                 if ((cursor - buf) + len >= PATH_MAX -1) {
-                    kfree(buf) ;
+                    kfree(decree) ;
                     return ERR_PTR(-E2BIG) ;
                 }
                 memcpy(cursor, path_cursor, len) ;
@@ -87,5 +105,27 @@ char *pathname_oracle(char *path) {
         }
     }
 
-    return buf ;
+    kern_path(buf, 0, &abs_path) ;
+
+    dget(&abs_path.dentry) ;
+
+    inode_solved = d_inode(&abs_path.dentry) ;
+    if (abs_path.dentry->d_inode == NULL) {
+        dput(&abs_path.dentry) ;
+        path_put(&abs_path) ;
+        decree->path_found = false ;
+        return decree ;
+    }
+
+    inode_lock_shared(abs_path.dentry->d_inode) ;
+    down_read(&abs_path.dentry->d_inode->i_sb->s_umount) ;
+    decree->descriptor.device_id = &abs_path.dentry->d_inode->i_sb->s_dev ;
+    decree->descriptor.inode_number = &abs_path.dentry->d_inode->i_ino ;
+    up_read(&abs_path.dentry->d_inode->i_sb->s_umount) ;
+    inode_unlock_shared(&abs_path.dentry->d_inode) ;
+    dput(&abs_path.dentry) ;
+
+    decree->path_found = true ;
+
+    return decree ;
 }

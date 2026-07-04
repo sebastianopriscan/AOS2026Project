@@ -27,16 +27,13 @@ static unsigned long SEARCH_COUNTER ;
 DEFINE_PER_CPU(unsigned long *, kprobe_context_pointer) ;
 
 #define setup_taget_func "probe_dummy"
-static void probe_dummy(void*) {
-    printk(KERN_DEBUG "processor %d inside of probe_dummy\n", task_cpu(current)) ;
+static void __attribute__((optimize("O0"))) probe_dummy(void*) {
     return ;
 }
 
 static int search_kprobe_context_pointer(struct kprobe *kp, struct pt_regs *the_regs) { 
 
 	unsigned long* temp = (unsigned long *) this_cpu_ptr(&kprobe_context_pointer);
-
-    printk(KERN_DEBUG "processor %d has entered kprobe search\n", task_cpu(current)) ;
 
 	while (temp > 0) {
         //brute force search of the current_kprobe per-CPU variable
@@ -46,7 +43,6 @@ static int search_kprobe_context_pointer(struct kprobe *kp, struct pt_regs *the_
         temp -= 1; 
         if (*temp == (unsigned long) kp) {
             atomic_inc((atomic_t*)&SEARCH_COUNTER);//mention we have found the target 
-            printk(KERN_DEBUG "processor %d has found the probe address\n", task_cpu(current)) ;
             break;
         }
 		if(temp <= 0) return 1;
@@ -96,13 +92,11 @@ int setup_preempt_kprobe(void) {
 	}
 
 	get_cpu();
-    printk(KERN_DEBUG "About to launch smp_call_function from cpu %d\n", task_cpu(current)) ;
-    smp_call_function(probe_dummy,NULL,1);
-	put_cpu();
 
-    printk(KERN_DEBUG "Launched smp_call_function from cpu %d\n", task_cpu(current)) ;
+    smp_call_function(probe_dummy,NULL,1);
     probe_dummy(NULL) ;
-    printk(KERN_DEBUG "Launched local probe_dummy from cpu %d\n", task_cpu(current)) ;
+
+	put_cpu();
 
 	unregister_kprobe(&setup_probe);
 
