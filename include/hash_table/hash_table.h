@@ -89,6 +89,26 @@ int hash_table_delete(throttleA_policy *policy, path_decree *decree) ;
 policy_with_table *hash_table_get(uid_t uid, const char *pathname) ;
 
 /**
+ * This function should be invoked when a creation/linking function is invoked.
+ * From the target's dentry it will be checked if it's necessary to create or update
+ * the inode's record in the hash table in relation with the saved policies. 
+ * @warning Beware that this function will be very likely to be used in interrupt context.
+ * @param dentry: The dentry representing the newly added/linked inode.
+ * @returns non-zero in case of error, zero otherwise
+ */
+int hash_table_bind_inode(struct dentry *dentry) ;
+
+/**
+ * This function should be invoked when an unlinking function is invoked.
+ * From the target's dentry it will be checked if it's necessary to create or update
+ * the inode's record in the hash table in relation with the saved policies. 
+ * @warning Beware that this function will be very likely to be used in interrupt context.
+ * @param dentry: The dentry representing the newly added/linked inode.
+ * @returns non-zero in case of error, zero otherwise
+ */
+int hash_table_unbind_inode(struct dentry *dentry) ;
+
+/**
  * To be invoked when a previously obtained policy handle is not of use anymore.  
  * @warning Don't use any blocking API until the hash table is freed.
  */

@@ -555,6 +555,126 @@ void cleanup_hash_table(void) {
     } while (!list_is_head(pos, &free_list)) ;
 }
 
+typedef void (*binding_action_t)(policy_with_table *, path_with_table *, struct rw_semaphore *) ;
+
+void perform_binding(policy_with_table *policy_table, path_with_table *path_table, struct rw_semaphore *sem) {
+    path_table->bound = true ;
+    list_add(&path_table->handle_list, &policy_table->bound_paths) ;
+    atomic_inc(&policy_table->refCount) ;
+    recalculate_program_based_policy(policy_table) ;
+    up_write(sem) ;
+}
+
+void undo_binding(policy_with_table *policy_table, path_with_table *path_table, struct rw_semaphore *sem) {
+    list_del(&path_table->handle_list) ;
+    path_table->bound = false ;
+    atomic_dec(&policy_table->refCount) ;
+    if (atomic_read(&policy_table->refCount) == 0) {
+        atomic_xchg(&policy_table->isActive,0) ;
+        sys_mirror_policy_rm(policy_table) ;
+        list_del_rcu(&policy_table->hash_head) ;
+        up_write(sem) ;
+        synchronize_rcu() ;
+        kfree(policy_table) ;
+    } else {
+        recalculate_program_based_policy(policy_table) ;
+    }
+    up_write(sem) ;
+}
+
+/**
+ * Internal util to lock an policy_with_table for further modifications
+ */
+static int policy_table_try_lock(policy_kind policy, uid_t uid, struct inode *inode, struct rw_semaphore **sem, policy_with_table **table) {
+    struct hash_table *hash_table;
+    int idx, sysFsRet ;
+    struct list_head *list, *pos ;
+    inode_descriptor descriptor = {
+        .inode_number = inode->i_ino,
+        .device_id = inode->i_rdev
+    } ;
+
+    table_from_policy(hash_table, policy) ;
+
+    if (hash_table == NULL) return -ENOKEY ;
+    if (hash_table == &UID_TABLE) return -ENOKEY ;
+
+    idx = evaluate_hash(uid, &descriptor) ;
+    list = &hash_table->records[idx].overflow_list;
+    *sem = &hash_table->records[idx].sem ;
+    down_write(*sem) ;
+
+    list_for_each_rcu(pos, list) {
+        *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
+        const int uid_condition = policy == POLICY_PROGRAM_ONLY || uid == (*table)->policy.uid ;
+        const int inode_condition = descriptor.device_id == (*table)->policy.inode.device_id && descriptor.inode_number == (*table)->policy.inode.inode_number ;
+        if (uid_condition && inode_condition) {
+            return 0 ;
+        }
+    }
+
+    *table = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
+    if (*table == NULL) {
+        up_write(*sem) ;
+        return 1 ;
+    }
+    (*table)->policy.inode.device_id = descriptor.device_id ;
+    (*table)->policy.inode.inode_number = descriptor.inode_number ;
+    (*table)->policy.policy = policy ;
+    for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
+        atomic_long_set(&(*table)->policy.syscalls[i], 0UL) ;
+    }
+    atomic_set(&(*table)->policy.tolerance, 0) ;
+    (*table)->policy.uid = uid ;
+
+    atomic_long_set(&(*table)->throttle_counter, 0) ;
+    atomic_set(&(*table)->isActive, 1) ;
+    atomic_set(&(*table)->refCount, 0) ;
+
+    sysFsRet = sys_mirror_policy_add(*table) ;
+    if (sysFsRet) {
+        kfree(*table) ;
+        up_write(sem) ;
+        return sysFsRet ;
+    }
+
+    list_add_rcu(&(*table)->hash_head,list) ;
+
+    return 0 ;
+}
+
+/**
+ * Internal util for actually binding a path to a policy
+ */
+static void apply_condition(policy_kind policy, const char *desc, struct inode *inode, binding_action_t action) {
+    struct hash_table *table;
+    struct rw_semaphore *sem ;
+    int idx ;
+    struct list_head *list, *pos ;
+
+    table_from_policy(table, policy) ;
+    if (table == NULL) return ;
+
+    idx = evaluate_desc_hash(desc) ;
+    list = &table->records[idx].overflow_list ;
+    sem = &table->records[idx].sem ;
+
+    down_read(sem) ;
+    list_for_each(pos, list) {
+        path_with_table *path_table = list_entry_rcu(pos, path_with_table, overflow_list) ;
+        policy_with_table *policy_table ;
+        struct rw_semaphore *policy_sem ;
+        const int path_condition = strcmp(desc, path_table->path.pathName) == 0;
+        if (path_condition) {
+            if (policy_table_try_lock(policy, path_table->policy.uid, inode, &policy_sem, &policy_table) == 0) {
+                action(policy_table, path_table, policy_sem) ;
+            }
+        }
+    }
+
+    return ;
+}
+
 static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, const inode_descriptor *desc) {
     struct hash_table *table;
     int idx ;
@@ -587,6 +707,28 @@ policy_with_table *hash_table_get(uid_t uid, const char *pathName) {
     if (retVal) return retVal;
 
     return hash_table_try_get(POLICY_UID_ONLY, uid, pathName) ;
+}
+
+int hash_table_bind_inode(struct dentry *dentry) {
+    struct inode *inode = d_inode(dentry) ;
+    char *pathName, *buf = kmalloc(PATH_MAX, GFP_KERNEL | GFP_ATOMIC) ;
+    if (buf == NULL) return -1 ;
+
+    pathName = dentry_path_raw(dentry, buf, PATH_MAX -1) ;
+
+    apply_condition(POLICY_UID_AND_PROGRAM, inode, dentry, perform_binding) ;
+    apply_binding(POLICY_PROGRAM_ONLY, inode, dentry, perform_binding) ;
+}
+
+int hash_table_unbind_inode(struct dentry *dentry) {
+    struct inode *inode = d_inode(dentry) ;
+    char *pathName, *buf = kmalloc(PATH_MAX, GFP_KERNEL | GFP_ATOMIC) ;
+    if (buf == NULL) return -1 ;
+
+    pathName = dentry_path_raw(dentry, buf, PATH_MAX -1) ;
+
+    apply_condition(POLICY_UID_AND_PROGRAM, inode, dentry, undo_binding) ;
+    apply_binding(POLICY_PROGRAM_ONLY, inode, dentry, undo_binding) ;
 }
 
 void hash_table_put(void) {
