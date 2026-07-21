@@ -43,7 +43,6 @@ path_decree *pathname_oracle(char *path) {
 
     if (path[0] == '/') {
         strncpy(buf, path, PATH_MAX) ;
-        return buf;
     } else {
         int kern_path_ret ;
         kern_path_ret = kern_path(".", 0, &base_path) ;
@@ -58,8 +57,8 @@ path_decree *pathname_oracle(char *path) {
             return buf ;
         }
         decree->path_ptr = buf ;
+        path_put(&base_path) ;
     }
-    path_put(&base_path) ;
 
     cursor = buf + strlen(buf) ;
     path_cursor = path[0] == '/' ? path : path +1 ;

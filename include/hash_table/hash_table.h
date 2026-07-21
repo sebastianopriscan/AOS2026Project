@@ -6,6 +6,7 @@
 #include "include/oracles/oracles.h"
 
 #define PATH_TABLE_SYMLINK_NAME "inode"
+#define MODULUS 193
 
 /**
  * Internal version with atomic types and
@@ -41,6 +42,15 @@ struct _policy_with_table {
     struct kobj_attribute kobj_attribute ;
 } ;
 typedef struct _policy_with_table policy_with_table ;
+
+struct hash_table_record {
+    struct list_head overflow_list ;
+    struct rw_semaphore sem ;
+} ;
+
+struct hash_table {
+    struct hash_table_record records[MODULUS] ;
+} ;
 
 /**
  * Initialize the hash table instance
