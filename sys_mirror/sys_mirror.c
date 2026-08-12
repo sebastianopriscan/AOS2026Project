@@ -310,7 +310,6 @@ void sys_mirror_policy_rm(policy_with_table *table) {
  */
 int bind_policy_to_path(policy_with_table *table, path_with_table *path) {
     char buf[32] ;
-    if (path->bound) return -EBUSY ;
 
     sprintf(buf, "%lu", path->id) ;
     if (sysfs_create_link(table->kobj, path->name, buf)) {
@@ -322,8 +321,15 @@ int bind_policy_to_path(policy_with_table *table, path_with_table *path) {
         return -1 ;
     }
 
-    path->bound = true ;
     return 0 ;
+}
+
+/**
+ * Unbinds a path-policy binding
+ */
+void unbind_path(path_with_table *path) {
+    sysfs_remove_link(path->child, PATH_TABLE_SYMLINK_NAME) ;
+    return ;
 }
 
 /**

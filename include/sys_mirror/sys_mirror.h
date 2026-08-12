@@ -30,6 +30,11 @@ void sys_mirror_path_rm(path_with_table *table) ;
 int bind_policy_to_path(policy_with_table *table, path_with_table *path) ;
 
 /**
+ * Unbinds a path-policy binding
+ */
+void unbind_path(path_with_table *path) ;
+
+/**
  * Unbinds a policy to path binding
  */
 void unbind_policy(policy_with_table *table, unsigned long id) ;

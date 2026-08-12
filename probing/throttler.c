@@ -71,7 +71,7 @@ static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
         unsigned int again ;
         do {
             int contained = 0 ;
-            policy_with_table *policy = hash_table_get(thread_uid.val, thread_name) ;
+            policy_with_table *policy = hash_table_try_get_all(thread_uid.val, thread_name) ;
             unsigned int tolerance = atomic_read(&policy->policy.tolerance) ;
             unsigned long bitmask ;
 

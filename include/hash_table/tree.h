@@ -52,18 +52,37 @@ typedef struct _path_tree_entry {
 path_tree_entry *get_path_tree_entry(char *fullPath) ;
 
 /**
+ * Obtain the path_tree_entry corresponding to the passed dentry, returns NULL if doesn't exist
+ *
+ * @param dentry The dentry being searched
+ * @returns the corresponding path_tree_entry, or NULL in case it's not found.
+ */
+path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) ;
+
+/**
  * Unbind the path_with_table pt from the path_tree, removing entries if not busy (either with children or with associated path_with_table entries)
  * @param fullPath The path being removed
  */
 void remove_path_tree_entry(char *fullPath) ;
 
 /**
- * Obtain the path_tree_entry corresponding to the struct dentry * through the hash table
+ * Remove linkage of an path_tree_entry to a specific dentry and 
+ * remove it from the hash table.
+ *
+ * @param entry : The entry to be dematerialized.
+ */
+void dematerialize_entry(path_tree_entry *entry) ;
+
+/**
+ * This function checks if a dentry that has just been created is under the
+ * module's management. If so, it returns the corresponding path_tree_entry,
+ * NULL otherwise
  * 
- * @param dentry The dentry to search the path_tree_entry against.
+ * @param parent The inode of the parent in which the new node has been created.
+ * @param dentry The newly added node.
  * @returns the path_tree_entry corresponding to dentry, if found, or NULL otherwise.
  */
-path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) ;
+path_tree_entry *materialize_child(struct dentry *parent, struct dentry *child) ;
 
 void init_path_tree(void) ;
 

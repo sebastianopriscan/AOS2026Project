@@ -42,10 +42,22 @@ static inline void CLEANUP_PATH_TREE_ENTRY(path_tree_entry *root) {
             entry = container_of((&entry->children)->next, path_tree_entry, siblings) ;
         } else {
             if (entry != root) {
+                struct list_head *pos, *tmp ;
+                path_with_table *ptToDelete ;
                 path_tree_entry *toDelete = entry ;
                 entry = entry->parent ;
                 list_del(&entry->siblings) ;
-                kfree(&entry->siblings) ;
+
+                pos = toDelete->overflow_list.next ;
+                do {
+                    tmp = pos ;
+                    pos = pos->next ;
+
+                    list_del(tmp) ;
+                    kfree(list_entry(tmp, path_with_table, overflow_list)) ;
+                } while (!list_is_head(pos, &toDelete->overflow_list)) ;
+
+                kfree(toDelete) ;
             }
         }
     } while (entry != root) ;
@@ -123,6 +135,30 @@ path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) {
     return NULL ;
 }
 
+path_tree_entry *materialize_child(struct dentry *parent, struct dentry *child) {
+    path_tree_entry *ptChild = NULL, *ptParent = get_path_tree_entry_by_inode(parent) ;
+    
+    if (ptParent) {
+        list_for_each_entry(ptChild, &(ptParent->children), siblings) {
+            if (strcmp(child->d_name.name, ptChild->name.name) == 0) {
+                ptChild->entry_status = PATH_TREE_ENTRY_ACTIVE ;
+                dget(child) ;
+                ptChild->dentry = child ;
+                list_add(&ptChild->overflow_list, &dentry_table.records[evaluate_hash(child)].overflow_list) ;
+                return ptChild ;
+            }
+        }
+    }
+    return NULL;
+}
+
+void dematerialize_entry(path_tree_entry *entry) {
+    entry->entry_status = PATH_TREE_ENTRY_INACTIVE ;
+    dput(entry->dentry) ;
+    entry->dentry = NULL ;
+    list_del(&entry->overflow_list) ;
+}
+
 void remove_path_tree_entry(char *fullPath) {
     struct list_head *pos ;
     path_tree_entry *base = &ROOT ;
@@ -145,6 +181,8 @@ void remove_path_tree_entry(char *fullPath) {
     } while (1) ;
     
     do {
+        if (base == &ROOT) return ;
+
         if (list_empty(&base->children) && list_empty(&base->pts)) {
             path_tree_entry *entry = base ;
             base = base->parent ;

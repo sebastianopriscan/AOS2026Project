@@ -96,27 +96,29 @@ int hash_table_delete(throttleA_policy *policy, path_decree *decree) ;
  * @param pathname: The thread's program name
  * @returns NULL in case the policy handle is not found, the policy handler otherwise.
  */
-policy_with_table *hash_table_get(uid_t uid, const char *pathname) ;
+policy_with_table *hash_table_try_get_all(uid_t uid, const char *pathname) ;
 
 /**
  * This function should be invoked when a creation/linking function is invoked.
- * From the target's dentry it will be checked if it's necessary to create or update
+ * From the target's inode it will be checked if it's necessary to create or update
  * the inode's record in the hash table in relation with the saved policies. 
  * @warning Beware that this function will be very likely to be used in interrupt context.
- * @param dentry: The dentry representing the newly added/linked inode.
+ * @param pts: The path_with table policies that have been materialized.
+ * @param desc: Descriptor of the newly added/linked inode.
  * @returns non-zero in case of error, zero otherwise
  */
-int hash_table_bind_inode(struct dentry *dentry) ;
+int hash_table_bind_inode(struct list_head *pts, struct inode_descriptor *desc) ;
 
 /**
  * This function should be invoked when an unlinking function is invoked.
  * From the target's dentry it will be checked if it's necessary to create or update
  * the inode's record in the hash table in relation with the saved policies. 
  * @warning Beware that this function will be very likely to be used in interrupt context.
- * @param dentry: The dentry representing the newly added/linked inode.
+ * @param pts: The path_with table policies that are going to be removed.
+ * @param desc: Descriptor of the unlinked inode.
  * @returns non-zero in case of error, zero otherwise
  */
-int hash_table_unbind_inode(struct dentry *dentry) ;
+int hash_table_unbind_inode(struct list_head *pts, struct inode_descriptor *desc) ;
 
 /**
  * To be invoked when a previously obtained policy handle is not of use anymore.  
