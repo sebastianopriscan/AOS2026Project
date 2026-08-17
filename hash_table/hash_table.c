@@ -684,22 +684,23 @@ int hash_table_unbind_inode(struct list_head *pts, struct inode_descriptor *desc
     path_with_table *pt ;
 
     list_for_each_entry(pt, pts, overflow_list) {
-        policy_with_table *policy_table = hash_table_get(pt->policy.policy, pt->policy.uid, &desc) ;
-
-        unbind_policy(policy_table, pt->id) ;
-        unbind_path(pt) ;
-        list_del(&pt->handle_list) ;
-        atomic_dec(&policy_table->refCount) ;
-        if (atomic_read(&policy_table->refCount) == 0) {
-            atomic_xchg(&policy_table->isActive,0) ;
-            sys_mirror_policy_rm(policy_table) ;
-            list_del_rcu(&policy_table->hash_head) ;
-            //up_write(sem) ;
-            synchronize_rcu() ;
-            kfree(policy_table) ;
-        } else {
+        policy_with_table *policy_table = hash_table_try_get(pt->policy.policy, pt->policy.uid, &desc) ;
+        if (policy_table) {
+            unbind_policy(policy_table, pt->id) ;
+            unbind_path(pt) ;
+            list_del(&pt->handle_list) ;
             atomic_dec(&policy_table->refCount) ;
-            recalculate_program_based_policy(policy_table) ;
+            if (atomic_read(&policy_table->refCount) == 0) {
+                atomic_xchg(&policy_table->isActive,0) ;
+                sys_mirror_policy_rm(policy_table) ;
+                list_del_rcu(&policy_table->hash_head) ;
+                //up_write(sem) ;
+                synchronize_rcu() ;
+                kfree(policy_table) ;
+            } else {
+                atomic_dec(&policy_table->refCount) ;
+                recalculate_program_based_policy(policy_table) ;
+            }
         }
     }
 }

@@ -36,12 +36,32 @@ typedef struct _path_tree_entry {
     // Status
     path_tree_entry_status entry_status ;
     struct dentry *dentry ;
+    unsigned long flags ;
     struct list_head overflow_list ;
 
     // List of path_with_table that match against the current path
     struct list_head pts ;
 
 } path_tree_entry ;
+
+#define AOS_PT_DIRECTORY (0x1UL << 0)
+#define AOS_PT_SYMLINK (0x1UL << 1)
+
+static inline int is_pt_directory(path_tree_entry *pt) {
+    return pt->flags & AOS_PT_DIRECTORY ;
+}
+
+static inline void set_pt_directory(path_tree_entry *pt) {
+    pt->flags | AOS_PT_DIRECTORY ;
+}
+
+static inline int is_pt_symlink(path_tree_entry *pt) {
+    return pt->flags & AOS_PT_SYMLINK ;
+}
+
+static inline void set_pt_symlink(path_tree_entry *pt) {
+    pt->flags | AOS_PT_SYMLINK ;
+}
 
 /**
  * Obtain the path_tree_entry corresponding to the passed fullPath, creating it if needed

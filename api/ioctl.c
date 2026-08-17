@@ -24,6 +24,7 @@ ssize_t throttleA_policy_add(throttleA_policy *policy) {
         return (ssize_t) PTR_ERR(fullPath) ;
     }
     ret = (ssize_t) hash_table_insert(policy, fullPath) ;
+    strcpy(policy->path.pathName, fullPath->path_ptr) ;
     kfree(fullPath) ;
     return ret ;
 }
@@ -35,6 +36,7 @@ ssize_t throttleA_policy_rm(throttleA_policy *policy) {
         return (ssize_t) PTR_ERR(fullPath) ;
     }
     ret = (ssize_t) hash_table_remove(policy, fullPath) ;
+    strcpy(policy->path.pathName, fullPath->path_ptr) ;
     kfree(fullPath) ;
     return ret ;
 }
@@ -46,6 +48,7 @@ ssize_t throttleA_policy_delete(throttleA_policy *policy) {
         return (ssize_t) PTR_ERR(fullPath) ;
     }
     ret = (ssize_t) hash_table_delete(policy, fullPath) ;
+    strcpy(policy->path.pathName, fullPath->path_ptr) ;
     kfree(fullPath) ;
     return ret ;
 }
@@ -58,8 +61,4 @@ ssize_t set_throttler_on() {
 ssize_t set_throttler_off() {
     set_throttler_status_off() ;
     return 0 ;
-}
-
-throttleA_policy *dump_throttleA_status() {
-    return NULL ;
 }

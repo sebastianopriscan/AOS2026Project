@@ -16,6 +16,6 @@ typedef struct path_decree {
  * @param path The path to resolve
  * @returns A pointer to a struct path_decree containing the absolute path and eventual inode_descriptor, or ERR_PTR of an error
  */
-path_decree *pathname_oracle(char *path) ;
+path_decree *pathname_oracle(char *path);
 
 #endif

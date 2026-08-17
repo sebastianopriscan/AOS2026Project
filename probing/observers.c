@@ -29,6 +29,8 @@ static struct unlink_metadata {
     struct inode_descriptor desc ;
 } ;
 
+typedef struct unlink_metadata symlink_metadata ; 
+
 static struct rename_metadata {
     struct unlink_metadata unlink ;
     struct dentry *dentry ;
@@ -46,66 +48,6 @@ static int vfs_create_pre_hook(struct kretprobe_instance *ki, struct pt_regs *re
 }
 
 static int vfs_create_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
-    struct dentry *dentry = *((struct dentry **) ki->data) ; 
-    struct inode *inode = d_inode(dentry) ;
-    struct inode_descriptor desc = {
-        .device_id = inode->i_rdev,
-        .inode_number = inode->i_ino 
-    } ;
-
-    if (!regs->ax) {
-        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
-        if (entry) {
-            hash_table_bind_inode(&entry->pts, &desc) ;
-        }
-    }
-    dput(dentry) ;
-
-    return 0 ;
-}
-
-/* VFS LINK */
-
-static int vfs_link_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
-    struct dentry *dentry = UNISTD_64_ARG3(regs, struct dentry *) ;
-    if (dentry) {
-        *((struct dentry **) ki->data) = dentry ; 
-        dget(dentry) ;
-        return 0 ;
-    } else return 1 ;
-}
-
-static int vfs_link_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
-    struct dentry *dentry = *((struct dentry **) ki->data) ; 
-    struct inode *inode = d_inode(dentry) ;
-    struct inode_descriptor desc = {
-        .device_id = inode->i_rdev,
-        .inode_number = inode->i_ino 
-    } ;
-
-    if (!regs->ax) {
-        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
-        if (entry) {
-            hash_table_bind_inode(&entry->pts, &desc) ;
-        }
-    }
-    dput(dentry) ;
-
-    return 0 ;
-}
-
-/* VFS MKNOD */
-
-static int vfs_mknod_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
-    struct dentry *dentry = UNISTD_64_ARG2(regs, struct dentry *) ;
-    if (dentry) {
-        *((struct dentry **) ki->data) = dentry ; 
-        dget(dentry) ;
-        return 0 ;
-    } else return 1 ;
-}
-
-static int vfs_mknod_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct dentry *dentry = *((struct dentry **) ki->data) ; 
     struct inode *inode = d_inode(dentry) ;
     struct inode_descriptor desc = {
@@ -149,6 +91,83 @@ static int vfs_tmpfile_ret_hook(struct kretprobe_instance *ki, struct pt_regs *r
     return 0 ;
 }
 
+/* VFS MKNOD */
+
+static int vfs_mknod_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = UNISTD_64_ARG2(regs, struct dentry *) ;
+    if (dentry) {
+        *((struct dentry **) ki->data) = dentry ; 
+        dget(dentry) ;
+        return 0 ;
+    } else return 1 ;
+}
+
+static int vfs_mknod_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = *((struct dentry **) ki->data) ; 
+    struct inode *inode = d_inode(dentry) ;
+    struct inode_descriptor desc = {
+        .device_id = inode->i_rdev,
+        .inode_number = inode->i_ino 
+    } ;
+
+    if (!regs->ax) {
+        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
+        if (entry) {
+            hash_table_bind_inode(&entry->pts, &desc) ;
+        }
+    }
+    dput(dentry) ;
+
+    return 0 ;
+}
+
+/* VFS MKDIR */
+
+static int vfs_mkdir_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = UNISTD_64_ARG2(regs, struct dentry *) ;
+    if (dentry) {
+        *((struct dentry **) ki->data) = dentry ; 
+        dget(dentry) ;
+        return 0 ;
+    } else return 1 ;
+}
+
+static int vfs_mkdir_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = *((struct dentry **) ki->data) ; 
+
+    if (!regs->ax) {
+        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
+    }
+    dput(dentry) ;
+
+    return 0 ;
+}
+
+/* VFS RMDIR */
+
+static int vfs_rmdir_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = UNISTD_64_ARG2(regs, struct dentry *) ;
+    if (dentry) {
+        *((struct dentry **) ki->data) = dentry ; 
+        dget(dentry) ;
+        return 0 ;
+    } else return 1 ;
+}
+
+static int vfs_rmdir_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = *((struct dentry **) ki->data) ; 
+
+    if (!regs->ax) {
+        path_tree_entry *entry = get_path_tree_entry_by_dentry(dentry) ;
+        if (entry) {
+            dematerialize_entry(entry) ;
+        }
+    }
+    dput(dentry) ;
+
+    return 0 ;
+}
+
 /* VFS UNLINK */
 
 static int vfs_unlink_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
@@ -174,6 +193,64 @@ static int vfs_unlink_ret_hook(struct kretprobe_instance *ki, struct pt_regs *re
             dematerialize_entry(entry) ;
         }
     }
+
+    return 0 ;
+}
+
+/* VFS SYMLINK */
+
+static int vfs_symlink_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = UNISTD_64_ARG3(regs, struct dentry *) ;
+    if (dentry) {
+        *((struct dentry **) ki->data) = dentry ; 
+        dget(dentry) ;
+        return 0 ;
+    } else return 1 ;
+}
+
+static int vfs_symlink_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = *((struct dentry **) ki->data) ; 
+    struct inode *inode = d_inode(dentry) ;
+    struct inode_descriptor desc = {
+        .device_id = inode->i_rdev,
+        .inode_number = inode->i_ino 
+    } ;
+
+    if (!regs->ax) {
+        // The module doesn't support path name resolution, it identifies programs only by hard links
+        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
+    }
+    dput(dentry) ;
+
+    return 0 ;
+}
+
+/* VFS LINK */
+
+static int vfs_link_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = UNISTD_64_ARG3(regs, struct dentry *) ;
+    if (dentry) {
+        *((struct dentry **) ki->data) = dentry ; 
+        dget(dentry) ;
+        return 0 ;
+    } else return 1 ;
+}
+
+static int vfs_link_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
+    struct dentry *dentry = *((struct dentry **) ki->data) ; 
+    struct inode *inode = d_inode(dentry) ;
+    struct inode_descriptor desc = {
+        .device_id = inode->i_rdev,
+        .inode_number = inode->i_ino 
+    } ;
+
+    if (!regs->ax) {
+        path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
+        if (entry) {
+            hash_table_bind_inode(&entry->pts, &desc) ;
+        }
+    }
+    dput(dentry) ;
 
     return 0 ;
 }

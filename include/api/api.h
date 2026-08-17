@@ -125,14 +125,6 @@ ssize_t set_throttler_on(void) ;
 ssize_t set_throttler_off(void) ;
 
 
-/*********** Read related API **********/
-
-/**
- * Returns an array containing all the set dumps
- */
-throttleA_policy *dump_throttleA_status(void) ;
-
-
 /*********** Lifecycle operations **********/
 
 int setup_api(void) ;

@@ -33,6 +33,7 @@ path_decree *pathname_oracle(char *path) {
     char *buf, *cursor, *path_cursor ;
     struct path base_path, abs_path ;
     struct inode *inode_solved ;
+    int kern_path_ret ;
 
     decree = kzalloc(sizeof(path_decree), GFP_KERNEL) ;
     if (!decree) {
@@ -44,7 +45,6 @@ path_decree *pathname_oracle(char *path) {
     if (path[0] == '/') {
         strncpy(buf, path, PATH_MAX) ;
     } else {
-        int kern_path_ret ;
         kern_path_ret = kern_path(".", 0, &base_path) ;
         if (kern_path_ret) {
             kfree(decree) ;
@@ -104,19 +104,23 @@ path_decree *pathname_oracle(char *path) {
         }
     }
 
-    kern_path(buf, 0, &abs_path) ;
+    kern_path_ret = kern_path(buf, LOOKUP_NO_SYMLINKS, &abs_path) ;
+    if (kern_path_ret == -ELOOP) {
+        kfree(decree) ;
+        return NULL ;
+    } 
 
     dget(&abs_path.dentry) ;
 
     inode_solved = d_inode(&abs_path.dentry) ;
-    if (abs_path.dentry->d_inode == NULL) {
+    if (inode_solved == NULL) {
         dput(&abs_path.dentry) ;
         path_put(&abs_path) ;
         decree->path_found = false ;
         return decree ;
     }
 
-    inode_lock_shared(abs_path.dentry->d_inode) ;
+    inode_lock_shared(inode_solved) ;
     down_read(&abs_path.dentry->d_inode->i_sb->s_umount) ;
     decree->descriptor.device_id = &abs_path.dentry->d_inode->i_sb->s_dev ;
     decree->descriptor.inode_number = &abs_path.dentry->d_inode->i_ino ;

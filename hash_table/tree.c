@@ -10,6 +10,7 @@
 #include <linux/syscalls.h>
 #include <linux/version.h>
 #include <linux/fs_struct.h>
+#include <linux/namei.h>
 
 #include "include/hash_table/tree.h"
 #include "include/hash_table/hash_table.h"
@@ -89,6 +90,7 @@ path_tree_entry *get_path_tree_entry(char *fullPath) {
 
         newEntry->entry_status = PATH_TREE_ENTRY_INACTIVE ;
         newEntry->dentry = NULL ;
+        newEntry->flags = 0UL ;
         INIT_LIST_HEAD(&newEntry->overflow_list) ;
         if (base->entry_status == PATH_TREE_ENTRY_ACTIVE) {
             list_for_each(pos, &base->dentry->d_subdirs) {
@@ -97,6 +99,8 @@ path_tree_entry *get_path_tree_entry(char *fullPath) {
                 if (slashcmp(child->d_name.name, pathPtr)) {
                     newEntry->entry_status = PATH_TREE_ENTRY_ACTIVE ;
                     newEntry->dentry = child ;
+                    if (d_is_dir(child)) set_pt_directory(newEntry) ;
+                    if (d_is_symlink(child)) set_pt_symlink(newEntry) ;
                     list_add(&newEntry->overflow_list, &dentry_table.records[evaluate_hash(child)].overflow_list) ;
                     break ;
                 }
@@ -136,7 +140,7 @@ path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) {
 }
 
 path_tree_entry *materialize_child(struct dentry *parent, struct dentry *child) {
-    path_tree_entry *ptChild = NULL, *ptParent = get_path_tree_entry_by_inode(parent) ;
+    path_tree_entry *ptChild = NULL, *ptParent = get_path_tree_entry_by_dentry(parent) ;
     
     if (ptParent) {
         list_for_each_entry(ptChild, &(ptParent->children), siblings) {
@@ -145,6 +149,8 @@ path_tree_entry *materialize_child(struct dentry *parent, struct dentry *child) 
                 dget(child) ;
                 ptChild->dentry = child ;
                 list_add(&ptChild->overflow_list, &dentry_table.records[evaluate_hash(child)].overflow_list) ;
+                if (d_is_symlink(child)) set_pt_symlink(ptChild) ;
+                if (d_is_dir(child)) set_pt_directory(ptChild) ;
                 return ptChild ;
             }
         }
