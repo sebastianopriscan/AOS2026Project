@@ -115,17 +115,14 @@ static ssize_t policy_show_with_uid(struct kobject *kobj, struct kobj_attribute 
 
 int sys_mirror_path_add(path_with_table *table) {
     char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL) ;
-    int chunks = 0 ;
-    int i, j ;
     struct kobject *root, *child, *desc, *path;
-    int ret = 0; 
     root = table->policy.policy == POLICY_UID_AND_PROGRAM ? path_program_uid : path_program ;
 
     if (!buf) {
         return -1 ;
     }
     
-    sprintf(buf, "%ld", table->id) ;
+    sprintf(buf, "%lld", table->id) ;
 
     child = kobject_create_and_add(buf, root) ;
     kfree(buf) ;
@@ -168,12 +165,11 @@ int sys_mirror_path_add(path_with_table *table) {
 
 void sys_mirror_path_rm(path_with_table *table) {
 
-    sysfs_remove_file(&table->desc, &table->desc_attribute.attr) ;
-    sysfs_remove_file(&table->path, &table->path_attribute.attr) ;
+    sysfs_remove_file(table->desc, &table->desc_attribute.attr) ;
+    sysfs_remove_file(table->name, &table->path_attribute.attr) ;
 
     kobject_put(table->desc) ;
     kobject_put(table->name) ;
-    kobject_put(table->desc) ;
 
     return ;
 }
@@ -185,7 +181,7 @@ static int sys_mirror_add_by_inode(policy_with_table *table) {
     if (!buf) {
         return -1 ;
     }
-    sprintf(buf, "%d:%d", table->policy.inode.device_id, table->policy.inode.inode_number) ;
+    sprintf(buf, "%d:%ld", table->policy.inode.device_id, table->policy.inode.inode_number) ;
 
     root = table->policy.policy == POLICY_UID_AND_PROGRAM ? policy_program_uid : policy_program ;
     kobject_get(root) ;
@@ -193,7 +189,6 @@ static int sys_mirror_add_by_inode(policy_with_table *table) {
 
     if(!found) {
         struct kobject *child, *dir = kobject_create_and_add(buf, policy_uid) ;
-        struct list_head *pos ;
 
         if (!dir) {
             kfree(buf) ;
@@ -237,11 +232,8 @@ static void sys_mirror_rm_by_inode(policy_with_table *table) {
 
 static int sys_mirror_add_by_uid(policy_with_table *table) {
     struct kobject *found ;
-    char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL) ;
+    char buf[32] ;
 
-    if (!buf) {
-        return -1 ;
-    }
     sprintf(buf, "%d", table->policy.uid) ;
 
     kobject_get(policy_uid) ;
@@ -250,7 +242,6 @@ static int sys_mirror_add_by_uid(policy_with_table *table) {
     if(!found) {
         struct kobject *child = kobject_create_and_add(buf, policy_uid) ;
         if (!child) {
-            kfree(buf) ;
             kobject_put(policy_uid) ;
             return -1 ;
         }
@@ -262,38 +253,29 @@ static int sys_mirror_add_by_uid(policy_with_table *table) {
         if (sysfs_create_file(child, &table->kobj_attribute.attr)) {
             kobject_put(child) ;
             kobject_put(policy_uid) ;
-            kfree(buf) ;
             return -1 ;
         }
         table->kobj = child ;
     }
-    kfree(buf) ;
 
     return 0 ;
 }
 
 static void sys_mirror_rm_by_uid(policy_with_table *table) {
     struct kobject *found ;
-    char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL) ;
+    char buf[32] ;
 
-    if (!buf) {
-        return -1 ;
-    }
     sprintf(buf, "%d", table->policy.uid) ;
 
     found = kset_find_obj(policy_uid->kset, buf) ;
 
-    if(!found) {
-        kfree(buf) ;
-        return -1;
+    if(found) {
+        sysfs_remove_file(found, &table->kobj_attribute.attr) ;
+        kobject_put(found) ;
+        kobject_put(policy_uid) ;
     }
 
-    sysfs_remove_file(found, &table->kobj_attribute.attr) ;
-    kobject_put(found) ;
-    kobject_put(policy_uid) ;
-    kfree(buf) ;
-
-    return 0 ;
+    return ;
 }
 
 int sys_mirror_policy_add(policy_with_table *table) {
@@ -311,7 +293,7 @@ void sys_mirror_policy_rm(policy_with_table *table) {
 int bind_policy_to_path(policy_with_table *table, path_with_table *path) {
     char buf[32] ;
 
-    sprintf(buf, "%lu", path->id) ;
+    sprintf(buf, "%llu", path->id) ;
     if (sysfs_create_link(table->kobj, path->name, buf)) {
         return -1 ;
     }

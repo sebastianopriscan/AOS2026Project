@@ -21,4 +21,14 @@ int enable_monitor(void) ;
  */
 void disable_monitor(void) ;
 
+/**
+ * Initialize the VFS events observers that monitor changes to the filesystem
+ */
+int init_observers(void) ;
+
+/**
+ * Cleanup the VFS events observers that monitor changes to the filesystem
+ */
+void cleanup_observers(void) ;
+
 #endif

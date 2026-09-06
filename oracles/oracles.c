@@ -54,7 +54,7 @@ path_decree *pathname_oracle(char *path) {
         if (IS_ERR(buf)) {
             path_put(&base_path) ;
             kfree(decree) ;
-            return buf ;
+            return (void *) buf ;
         }
         decree->path_ptr = buf ;
         path_put(&base_path) ;
@@ -110,11 +110,11 @@ path_decree *pathname_oracle(char *path) {
         return NULL ;
     } 
 
-    dget(&abs_path.dentry) ;
+    dget(abs_path.dentry) ;
 
-    inode_solved = d_inode(&abs_path.dentry) ;
+    inode_solved = d_inode(abs_path.dentry) ;
     if (inode_solved == NULL) {
-        dput(&abs_path.dentry) ;
+        dput(abs_path.dentry) ;
         path_put(&abs_path) ;
         decree->path_found = false ;
         return decree ;
@@ -122,11 +122,11 @@ path_decree *pathname_oracle(char *path) {
 
     inode_lock_shared(inode_solved) ;
     down_read(&abs_path.dentry->d_inode->i_sb->s_umount) ;
-    decree->descriptor.device_id = &abs_path.dentry->d_inode->i_sb->s_dev ;
-    decree->descriptor.inode_number = &abs_path.dentry->d_inode->i_ino ;
+    decree->descriptor.device_id = abs_path.dentry->d_inode->i_sb->s_dev ;
+    decree->descriptor.inode_number = abs_path.dentry->d_inode->i_ino ;
     up_read(&abs_path.dentry->d_inode->i_sb->s_umount) ;
-    inode_unlock_shared(&abs_path.dentry->d_inode) ;
-    dput(&abs_path.dentry) ;
+    inode_unlock_shared(abs_path.dentry->d_inode) ;
+    dput(abs_path.dentry) ;
 
     decree->path_found = true ;
 

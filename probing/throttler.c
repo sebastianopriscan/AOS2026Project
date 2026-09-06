@@ -59,19 +59,22 @@ struct file *get_task_exe_file(struct task_struct *task)
 }
 
 static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
+    inode_descriptor desc ;
+    THROTTLER_STATUS status ;
     struct pt_regs *syscall_regs = ((struct pt_regs *)regs->di) ;
     const unsigned long syscall_code = syscall_regs->ax ;
     kuid_t thread_uid = current_cred()->uid ;
 
     struct file *thread_file = get_task_exe_file(current) ;
-    const char *thread_name = thread_file->f_path.dentry->d_name.name ;
+    desc.device_id = thread_file->f_inode->i_rdev ;
+    desc.inode_number = thread_file->f_inode->i_ino ;
 
-    THROTTLER_STATUS status = down_throttler_status(THROTTLER_LOCK_READ) ;
+    status = down_throttler_status(THROTTLER_LOCK_READ) ;
     if (status == ON) {
         unsigned int again ;
         do {
             int contained = 0 ;
-            policy_with_table *policy = hash_table_try_get_all(thread_uid.val, thread_name) ;
+            policy_with_table *policy = hash_table_try_get_all(thread_uid.val, &desc) ;
             unsigned int tolerance = atomic_read(&policy->policy.tolerance) ;
             unsigned long bitmask ;
 

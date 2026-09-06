@@ -17,6 +17,7 @@
 #include "include/api/api.h"
 #include "include/oracles/oracles.h"
 #include "include/hash_table/hash_table.h"
+#include "include/utils/unlock.h"
 
 typedef enum {
     PATH_TREE_ENTRY_ACTIVE,
@@ -27,7 +28,7 @@ typedef struct _path_tree_entry {
     /**
      * Linking to other entries
      */
-    path_tree_entry *parent ;
+    struct _path_tree_entry *parent ;
     struct list_head siblings, children ;
 
     // Name of the entry
@@ -38,6 +39,10 @@ typedef struct _path_tree_entry {
     struct dentry *dentry ;
     unsigned long flags ;
     struct list_head overflow_list ;
+
+    // Locking
+    struct rw_semaphore *ht_sem, entry_sem ;
+    unlock_data unlock_data ;
 
     // List of path_with_table that match against the current path
     struct list_head pts ;
@@ -52,7 +57,7 @@ static inline int is_pt_directory(path_tree_entry *pt) {
 }
 
 static inline void set_pt_directory(path_tree_entry *pt) {
-    pt->flags | AOS_PT_DIRECTORY ;
+    pt->flags |= AOS_PT_DIRECTORY ;
 }
 
 static inline int is_pt_symlink(path_tree_entry *pt) {
@@ -60,7 +65,7 @@ static inline int is_pt_symlink(path_tree_entry *pt) {
 }
 
 static inline void set_pt_symlink(path_tree_entry *pt) {
-    pt->flags | AOS_PT_SYMLINK ;
+    pt->flags |= AOS_PT_SYMLINK ;
 }
 
 /**
@@ -69,15 +74,21 @@ static inline void set_pt_symlink(path_tree_entry *pt) {
  * @param fullPath The path being searched
  * @returns the corresponding path_tree_entry, or ERR_PTR in case of errors.
  */
-path_tree_entry *get_path_tree_entry(char *fullPath) ;
+path_tree_entry *get_path_tree_entry(char *fullPath, struct list_head *unlock_stack) ;
 
 /**
- * Obtain the path_tree_entry corresponding to the passed dentry, returns NULL if doesn't exist
+ * Obtain the path_tree_entry corresponding to the passed dentry, returns NULL if doesn't exist.
+ * It locks the eventually returned entry and it's parent.
  *
  * @param dentry The dentry being searched
  * @returns the corresponding path_tree_entry, or NULL in case it's not found.
  */
 path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) ;
+
+/**
+ * Release the locks on the path tree entry
+ */
+void put_path_tree_entry(path_tree_entry *entry) ;
 
 /**
  * Unbind the path_with_table pt from the path_tree, removing entries if not busy (either with children or with associated path_with_table entries)

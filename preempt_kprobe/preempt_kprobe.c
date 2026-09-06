@@ -19,8 +19,7 @@ typedef enum {
 
 static preempt_setup_status STATUS = OFF ;
 
-// TODO: Evaluate if semaphore is really needed
-static struct rw_semaphore internal_semaphore ;
+rwlock_t internal_lock ;
 
 static unsigned long SEARCH_COUNTER ;
 
@@ -58,36 +57,41 @@ static struct kprobe setup_probe = {
     .pre_handler = search_kprobe_context_pointer
 } ;  
 
-void reset_kprobe_context(void) {
-    down_read(&internal_semaphore) ;
+struct kprobe *reset_kprobe_context(void) {
+    struct kprobe *retVal ;
+    read_lock(&internal_lock) ;
     if (STATUS == ON) {
         unsigned long *current_kprobe_context_pointer ; //Question: would current_kprobe be sufficient?
         current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
+        retVal = (void *) __this_cpu_read(*current_kprobe_context_pointer) ;
         __this_cpu_write(*current_kprobe_context_pointer, 0UL) ;
+        preempt_enable() ;
     }
-    up_read(&internal_semaphore) ;
+    read_unlock(&internal_lock) ;
+    return retVal ;
 }
 
 void set_kprobe_context(struct kprobe *probe) {
-    down_read(&internal_semaphore) ;
+    read_lock(&internal_lock) ;
     if (STATUS == ON) {
         unsigned long *current_kprobe_context_pointer ;
         //Question: would current_kprobe be sufficient?
         current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
         __this_cpu_write(*current_kprobe_context_pointer, (unsigned long) probe) ;
+        preempt_disable() ;
     }
-    up_read(&internal_semaphore) ;
+    read_unlock(&internal_lock) ;
 }
 
 int setup_preempt_kprobe(void) {
 	int ret ;
 
-    init_rwsem(&internal_semaphore) ;
+    rwlock_init(&internal_lock) ;
 
-    down_write(&internal_semaphore) ;
+    write_lock(&internal_lock) ;
 	ret = register_kprobe(&setup_probe);
 	if (ret < 0) {
-        up_write(&internal_semaphore) ;
+        write_unlock(&internal_lock) ;
 		return ret;
 	}
 
@@ -101,12 +105,12 @@ int setup_preempt_kprobe(void) {
 	unregister_kprobe(&setup_probe);
 
 	if(SEARCH_COUNTER != num_online_cpus()){
-        up_write(&internal_semaphore) ;
+        write_unlock(&internal_lock) ;
 		return -1;
 	}
     
     STATUS = ON ;
-    up_write(&internal_semaphore) ;
+    write_unlock(&internal_lock) ;
 
     return 0 ;
 }

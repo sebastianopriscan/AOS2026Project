@@ -11,7 +11,7 @@
  *          set_kprobe_context before returning from the probing hook
  * 
  */
-void reset_kprobe_context(void) ;
+struct kprobe *reset_kprobe_context(void) ;
 
 /**
  * reset_kprobe_context's counterpart to be called before returning from a
@@ -28,5 +28,9 @@ void set_kprobe_context(struct kprobe *probe) ;
  * Sets up the preemptable kprobe system by obtaining the per CPU kprobe context pointer
  */
 int setup_preempt_kprobe(void) ;
+
+#define RESET_KPROBE_CONTEXT() struct kprobe *__preempt_kprobe_probe_addr = reset_kprobe_context() 
+
+#define SET_KPROBE_CONTEXT() set_kprobe_context(__preempt_kprobe_probe_addr) 
 
 #endif

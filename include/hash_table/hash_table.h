@@ -93,10 +93,10 @@ int hash_table_delete(throttleA_policy *policy, path_decree *decree) ;
  * hash_table_put should be invoked when the policy handle is no longer of use.
  * @warning Don't use any blocking API until the hash table is freed.
  * @param uid: The thread's effective user id
- * @param pathname: The thread's program name
+ * @param pathname: Inode descriptor created from a thread
  * @returns NULL in case the policy handle is not found, the policy handler otherwise.
  */
-policy_with_table *hash_table_try_get_all(uid_t uid, const char *pathname) ;
+policy_with_table *hash_table_try_get_all(uid_t uid, const inode_descriptor *desc) ;
 
 /**
  * This function should be invoked when a creation/linking function is invoked.
