@@ -47,7 +47,7 @@ static int search_kprobe_context_pointer(struct kprobe *kp, struct pt_regs *the_
 		if(temp <= 0) return 1;
     }
 
-	__this_cpu_write(kprobe_context_pointer, temp);
+	this_cpu_write(kprobe_context_pointer, temp);
 
 	return 0;
 }
@@ -62,9 +62,9 @@ struct kprobe *reset_kprobe_context(void) {
     read_lock(&internal_lock) ;
     if (STATUS == ON) {
         unsigned long *current_kprobe_context_pointer ; //Question: would current_kprobe be sufficient?
-        current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-        retVal = (void *) __this_cpu_read(*current_kprobe_context_pointer) ;
-        __this_cpu_write(*current_kprobe_context_pointer, 0UL) ;
+        current_kprobe_context_pointer = this_cpu_read(kprobe_context_pointer) ;
+        retVal = (void *) current_kprobe_context_pointer ;
+        *current_kprobe_context_pointer =  0UL ;
         preempt_enable() ;
     }
     read_unlock(&internal_lock) ;
@@ -76,8 +76,8 @@ void set_kprobe_context(struct kprobe *probe) {
     if (STATUS == ON) {
         unsigned long *current_kprobe_context_pointer ;
         //Question: would current_kprobe be sufficient?
-        current_kprobe_context_pointer = __this_cpu_read(kprobe_context_pointer) ;
-        __this_cpu_write(*current_kprobe_context_pointer, (unsigned long) probe) ;
+        current_kprobe_context_pointer = this_cpu_read(kprobe_context_pointer) ;
+        *current_kprobe_context_pointer =  (unsigned long) probe ;
         preempt_disable() ;
     }
     read_unlock(&internal_lock) ;

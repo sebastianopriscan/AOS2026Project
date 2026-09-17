@@ -224,6 +224,7 @@ path_tree_entry *get_path_tree_entry_by_dentry(struct dentry *dentry) {
         }
     }
 
+    up_read(&record->sem) ;
     return NULL ;
 }
 

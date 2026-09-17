@@ -25,20 +25,20 @@ MODULE_DESCRIPTION("This module implements a throttler for system calls invocati
 static int throttleA_init(void) {
 
 	if (init_hash_table()) return 1 ;
-	if (init_observers()) {
-		cleanup_hash_table() ;
-		return 1 ;
-	}
 	setup_throttler_status();
 	if (setup_preempt_kprobe() != 0) {
 		cleanup_throttler_status() ;
-		cleanup_observers() ;
 		cleanup_hash_table() ;
 		return -1 ;
 	}
-	if (setup_api() != 0) {
+	if (init_observers()) {
 		cleanup_throttler_status() ;
+		cleanup_hash_table() ;
+		return 1 ;
+	}
+	if (setup_api() != 0) {
 		cleanup_observers() ;
+		cleanup_throttler_status() ;
 		cleanup_hash_table() ;
 		return -1 ;
 	}
@@ -47,8 +47,8 @@ static int throttleA_init(void) {
 
 static void  throttleA_exit(void) {
 	cleanup_api();
-	cleanup_throttler_status() ;
 	cleanup_observers() ;
+	cleanup_throttler_status() ;
 	cleanup_hash_table() ;
 }
 

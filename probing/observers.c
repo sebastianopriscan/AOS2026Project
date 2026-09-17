@@ -54,16 +54,16 @@ static int vfs_create_ret_hook(struct kretprobe_instance *ki, struct pt_regs *re
         .inode_number = inode->i_ino 
     } ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
         if (entry) {
             hash_table_bind_inode(&entry->pts, &desc) ;
             put_path_tree_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -83,15 +83,15 @@ static int vfs_tmpfile_ret_hook(struct kretprobe_instance *ki, struct pt_regs *r
         .inode_number = inode->i_ino 
     } ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (dentry) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
         if (entry) {
             hash_table_bind_inode(&entry->pts, &desc) ;
             put_path_tree_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -115,16 +115,16 @@ static int vfs_mknod_ret_hook(struct kretprobe_instance *ki, struct pt_regs *reg
         .inode_number = inode->i_ino 
     } ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
         if (entry) {
             hash_table_bind_inode(&entry->pts, &desc) ;
             put_path_tree_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -143,13 +143,13 @@ static int vfs_mkdir_pre_hook(struct kretprobe_instance *ki, struct pt_regs *reg
 static int vfs_mkdir_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct dentry *dentry = *((struct dentry **) ki->data) ; 
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
-        put_path_tree_entry(entry) ;
-        SET_KPROBE_CONTEXT() ;
+        if (entry) put_path_tree_entry(entry) ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -168,16 +168,16 @@ static int vfs_rmdir_pre_hook(struct kretprobe_instance *ki, struct pt_regs *reg
 static int vfs_rmdir_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct dentry *dentry = *((struct dentry **) ki->data) ; 
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = get_path_tree_entry_by_dentry(dentry) ;
         if (entry) {
             dematerialize_entry(entry) ;
             put_path_tree_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -200,15 +200,15 @@ static int vfs_unlink_pre_hook(struct kretprobe_instance *ki, struct pt_regs *re
 static int vfs_unlink_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct unlink_metadata *payload = (struct unlink_metadata *) ki->data ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = get_path_tree_entry_by_dentry(payload->d) ;
         if (entry) {
             hash_table_unbind_inode(&entry->pts, &payload->desc) ;
             dematerialize_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -216,7 +216,7 @@ static int vfs_unlink_ret_hook(struct kretprobe_instance *ki, struct pt_regs *re
 /* VFS SYMLINK */
 
 static int vfs_symlink_pre_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
-    struct dentry *dentry = UNISTD_64_ARG3(regs, struct dentry *) ;
+    struct dentry *dentry = UNISTD_64_ARG2(regs, struct dentry *) ;
     if (dentry) {
         *((struct dentry **) ki->data) = dentry ; 
         dget(dentry) ;
@@ -227,14 +227,14 @@ static int vfs_symlink_pre_hook(struct kretprobe_instance *ki, struct pt_regs *r
 static int vfs_symlink_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct dentry *dentry = *((struct dentry **) ki->data) ; 
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         // The module doesn't support path name resolution, it identifies programs only by hard links
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
-        put_path_tree_entry(entry) ;
-        SET_KPROBE_CONTEXT() ;
+        if (entry) put_path_tree_entry(entry) ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -258,16 +258,16 @@ static int vfs_link_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs
         .inode_number = inode->i_ino 
     } ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = materialize_child(dentry->d_parent, dentry) ;
         if (entry) {
             hash_table_bind_inode(&entry->pts, &desc) ;
             put_path_tree_entry(entry) ;
         }
-        SET_KPROBE_CONTEXT() ;
     }
     dput(dentry) ;
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
@@ -295,8 +295,8 @@ static int vfs_rename_pre_hook(struct kretprobe_instance *ki, struct pt_regs *re
 static int vfs_rename_ret_hook(struct kretprobe_instance *ki, struct pt_regs *regs) {
     struct rename_metadata *payload = (struct rename_metadata *) ki->data ;
 
+    RESET_KPROBE_CONTEXT() ;
     if (!regs->ax) {
-        RESET_KPROBE_CONTEXT() ;
         path_tree_entry *entry = get_path_tree_entry_by_dentry(payload->unlink.d) ;
         if (entry) {
             // Unbind old node
@@ -317,8 +317,8 @@ static int vfs_rename_ret_hook(struct kretprobe_instance *ki, struct pt_regs *re
                 put_path_tree_entry(entry) ;
             }
         }
-        SET_KPROBE_CONTEXT() ;
     }
+    SET_KPROBE_CONTEXT() ;
 
     return 0 ;
 }
