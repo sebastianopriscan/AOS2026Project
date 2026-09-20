@@ -23,119 +23,122 @@ struct _throttleA_path {
 } ;
 typedef struct _throttleA_path throttleA_path ;
 
-enum policy_kind {
-    POLICY_UID_ONLY = 0,
-    POLICY_PROGRAM_ONLY = 1,
-    POLICY_UID_AND_PROGRAM = 2
-} ;
-typedef enum policy_kind policy_kind ;
-
+typedef unsigned long throttleA_syscall_map_type ;
 /**
- * Policy for the throttler. Depending on the policy_kind field, it will
- * enable throttling for a determinate user-ID and/or program name.
- * 
- * The relation between a policy_kind and the actual policy is the following:
- * 
- * - POLICY_UID_ONLY : The policy applies by user-ID
- * - POLICY_PROGRAM_ONLY : The policy applies by program name
- * - POLICY_UID_AND_PROGRAM : The policy applies when the specified user-ID runs the
- *                            specified program
- * A copy of the struct is allocated when the user passes it as a param
+ * Bitmap of the x86_64 syscalls, bit at index i
+ * corresponds to the ith's syscall code
  */
-struct _throttleA_policy {
-    policy_kind policy;
-    unsigned int uid ;
-    throttleA_path path;
-    unsigned int tolerance ;
-    TYPE_ARRAY_PER_LIMIT(unsigned long, syscalls);
+struct _throttleA_syscall_map {
+    TYPE_ARRAY_PER_LIMIT(throttleA_syscall_map_type, map) ;
 } ;
-typedef struct _throttleA_policy throttleA_policy ;
+typedef struct _throttleA_syscall_map throttleA_syscall_map ;
 
-/**
- * Internal version with atomic types
- */
-struct _throttleA_policy_internal {
-    policy_kind policy;
-    unsigned int uid ;
-    throttleA_path path;
-    atomic_t tolerance ;
-    atomic_long_t syscalls[DATA_PER_LIMIT(unsigned long)] ;
-} ;
-typedef struct _throttleA_policy_internal throttleA_policy_internal ;
 
-/******** Operation addPolicy: ********
+
+/******** Operation addUid: ********
     OPCODE    : 0b000
-    OPMACRO   : ADD_POLICY
-    OPARG     : struct throttleA_policy
+    OPMACRO   : ADD_UID
+    OPARG     : unsigned long
     OPARGTYPE : IN
-    ARGSIZE   : sizeof(struct throttleA_policy)
+    ARGSIZE   : 0
 
-    Description : adds a policy to the throttling manager.
+    Description : adds a uid to be monitored by the throttling manager.
 */
-#define ADD_POLICY 0x00000000
+#define ADD_UID 0x00000000
 
 
-ssize_t throttleA_policy_add(throttleA_policy *) ;
+ssize_t throttleA_uid_add(unsigned long) ;
 
-/******** Operation removePolicy: ********
+/******** Operation removeUid: ********
     OPCODE    : 0b001
-    OPMACRO   : RM_POLICY
-    OPARG     : struct throttleA_policy
+    OPMACRO   : RM_UID
+    OPARG     : unsigned long
     OPARGTYPE : IN
-    ARGSIZE   : sizeof(struct throttleA_policy)
+    ARGSIZE   : 0
 
-    Description : removes a given policy
+    Description : removes a uid being monitored by the throttling manager.
 */
-#define RM_POLICY 0x20000000
+#define RM_UID 0x20000000
 
-ssize_t throttleA_policy_rm(throttleA_policy *) ;
+ssize_t throttleA_uid_rm(unsigned long) ;
 
-/******** Operation deletePolicy: ********
+/******** Operation addPath: ********
+    OPCODE    : 0b010
+    OPMACRO   : ADD_PATH
+    OPARG     : throttleA_path *
+    OPARGTYPE : IN
+    ARGSIZE   : sizeof(throttleA_path)
+
+    Description : adds a path to be monitored by the throttling manager.
+*/
+#define ADD_PATH 0x40000000
+
+ssize_t throttleA_path_add(throttleA_path *) ;
+
+/******** Operation rmPath: ********
+    OPCODE    : 0b011
+    OPMACRO   : RM_PATH
+    OPARG     : throttleA_path *
+    OPARGTYPE : IN
+    ARGSIZE   : sizeof(throttleA_path)
+
+    Description : removes a path being monitored by the throttling manager.
+*/
+#define RM_PATH 0x60000000
+
+ssize_t throttleA_path_rm(throttleA_path *) ;
+
+/******** Operation addSyscalls: ********
     OPCODE    : 0b100
-    OPMACRO   : DELETE_POLICY
-    OPARG     : struct throttleA_policy
+    OPMACRO   : ADD_SYSCALLS
+    OPARG     : throttleA_syscall_map *
     OPARGTYPE : IN
-    ARGSIZE   : sizeof(struct throttleA_policy)
+    ARGSIZE   : sizeof(throttleA_syscall_map)
 
-    Description : deletes the given syscalls from the given policy
+    Description : adds some syscalls to be monitored by the throttling manager.
 */
-#define DELETE_POLICY 0x80000000
+#define ADD_SYSCALLS 0x80000000
 
-ssize_t throttleA_policy_delete(throttleA_policy *) ;
+ssize_t throttleA_syscalls_add(throttleA_syscall_map *) ;
+
+/******** Operation rmSyscalls: ********
+    OPCODE    : 0b101
+    OPMACRO   : RM_SYSCALLS
+    OPARG     : throttleA_syscall_map *
+    OPARGTYPE : IN
+    ARGSIZE   : sizeof(throttleA_syscall_map)
+
+    Description : removes some syscalls being monitored by the throttling manager.
+*/
+#define RM_SYSCALLS 0xA0000000
+
+ssize_t throttleA_syscalls_rm(throttleA_syscall_map *) ;
 
 /******** Operation setThrottler: ********
-    OPCODE    : 0b010
+    OPCODE    : 0b110
     OPMACRO   : THROTTLER_SET_ENABLE
-    OPARG     : char
+    OPARG     : void
     OPARGTYPE : IN
-    ARGSIZE   : sizeof(char)
+    ARGSIZE   : 0
 
     Description : sets the throttler's on/off state
 */
-#define THROTTLER_SET_ENABLE 0x40000000
+#define THROTTLER_SET_ENABLE 0xC0000000
 
 ssize_t set_throttler_on(void) ;
 
 /******** Operation setThrottler: ********
-    OPCODE    : 0b011
+    OPCODE    : 0b111
     OPMACRO   : THROTTLER_SET_DISABLE
-    OPARG     : char
+    OPARG     : void
     OPARGTYPE : IN
-    ARGSIZE   : sizeof(char)
+    ARGSIZE   : 0
 
     Description : sets the throttler's on/off state
 */
-#define THROTTLER_SET_DISABLE 0x60000000
+#define THROTTLER_SET_DISABLE 0xE0000000
 
 ssize_t set_throttler_off(void) ;
-
-
-/*********** Read related API **********/
-
-/**
- * Returns an array containing all the set dumps
- */
-throttleA_policy *dump_throttleA_status(void) ;
 
 
 /*********** Lifecycle operations **********/

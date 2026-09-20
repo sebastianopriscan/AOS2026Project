@@ -11,27 +11,7 @@
 #include <linux/version.h>
 
 #include "include/hash_table/hash_table.h"
-#include "include/sys_mirror/sys_mirror.h"
-
-#define MODULUS 193
-
-#define table_from_policy(table, policy) \
-do {\
-    switch (policy) { \
-        case POLICY_UID_ONLY: \
-            table = &UID_TABLE ; \
-            break ; \
-        case POLICY_PROGRAM_ONLY: \
-            table = &PROGRAM_TABLE ; \
-            break ; \
-        case POLICY_UID_AND_PROGRAM: \
-            table = &PROGRAM_UID_TABLE ; \
-            break ; \
-        default: \
-            table = NULL ; \
-            break ; \
-    } \
-} while (0) \
+#include "include/utils/seeds.h"
 
 struct hash_table_record {
     struct list_head overflow_list ;
@@ -42,184 +22,96 @@ struct hash_table {
     struct hash_table_record records[MODULUS] ;
 } ;
 
-static struct hash_table UID_TABLE, PROGRAM_TABLE, PROGRAM_UID_TABLE ;
+static struct hash_table UID_TABLE ;
 
-static inline int evaluate_hash(int uid, const char *name) {
-    int hash = uid ;
-    const int len = strlen(name) ;
-    for (int i = 0; i < len; i += sizeof(int)) {
-        int number = 0;
-        for (int j = 0; j < sizeof(int) ; j++) {
-            number |= ((int) name[i+j] << (8*j)) ;
-        }
-        hash ^= number ;
-    }
+typedef struct _uid_record {
+    struct list_head overflow_list ;
+    uid_t uid ;
+} uid_record ;
 
+static inline unsigned long evaluate_uid_hash(uid_t uid) {
+    bool flipped = uid % 2 == 0 ;
+    unsigned long first  = (flipped ? FIRST_HALF : SECOND_HALF) * uid ;
+    unsigned long second = (flipped ? SECOND_HALF : FIRST_HALF) * uid ;
+    unsigned long hash   = (first << 32) | ((unsigned long) 0xFFFFFFFF & SECOND_HALF) ;
     return hash % MODULUS ;
 }
 
-int init_hash_table(void) {
+void init_hash_table(void) {
     for (int i = 0; i < MODULUS; i++) {
-        INIT_LIST_HEAD(&PROGRAM_UID_TABLE.records[i].overflow_list) ;
-        init_rwsem(&PROGRAM_UID_TABLE.records[i].sem) ;
         INIT_LIST_HEAD(&UID_TABLE.records[i].overflow_list) ;
         init_rwsem(&UID_TABLE.records[i].sem) ;
-        INIT_LIST_HEAD(&PROGRAM_TABLE.records[i].overflow_list) ;
-        init_rwsem(&PROGRAM_TABLE.records[i].sem) ;
     }
 
-    return init_ht_sys_mirror() ;
+    return ;
 }
 
-int hash_table_insert(throttleA_policy *policy, char *fullPath) {
-    struct hash_table *table;
-    int idx, sysFsRet ;
-    struct list_head *list, *pos ;
+int hash_table_insert_uid(uid_t uid) {
+    struct hash_table_record *ht_record ;
+    struct list_head *list ;
     struct rw_semaphore *sem ;
-    policy_with_table *pt ;
-    char hit = 0 ;
+    uid_record *record ;
 
-    table_from_policy(table, policy->policy) ;
-
-    if (table == NULL) return -ENOKEY ;
-
-    idx = evaluate_hash(policy->uid, fullPath) ;
-    list = &table->records[idx].overflow_list;
-    sem = &table->records[idx].sem ;
-    list_for_each_rcu(pos, list) {
-        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
-        const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
-        if (uid_condition && path_condition) {
-
-            for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-                atomic_long_or(policy->syscalls[i], &table->policy.syscalls[i]) ;
-            }
-
-            if (policy->tolerance != 0) {
-                atomic_xchg(&table->policy.tolerance, policy->tolerance) ;
-            }
-
-            hit = 1 ;
-            break ;
+    ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
+    list = &ht_record->overflow_list;
+    sem = &ht_record->sem ;
+    down_write(sem) ;
+    list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
+        if (record->uid == uid) {
+            up_write(sem) ;
+            return -EEXIST ;
         }
     }
 
-    if (hit) return 0 ;
-
-    down_write(sem) ;
-
-    pt = kmalloc(sizeof(policy_with_table), GFP_KERNEL) ;
-    if (pt == NULL) {
+    record = kmalloc(sizeof(uid_record), GFP_KERNEL) ;
+    if (record == NULL) {
         up_write(sem) ;
-        return 1 ;
+        return -ENOMEM ;
     }
-    memcpy(&pt->policy.path.pathName, fullPath, PATH_MAX) ;
-    pt->policy.policy = policy->policy ;
-    for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-        atomic_long_set(&pt->policy.syscalls[i], policy->syscalls[i]) ;
-    }
-    atomic_set(&pt->policy.tolerance, policy->tolerance) ;
-    pt->policy.uid = policy->uid ;
 
-    atomic_long_set(&pt->throttle_counter, 0) ;
-    atomic_set(&pt->isActive, 1) ;
-
-    list_add_rcu(&pt->hash_head,list) ;
-
-    sysFsRet = sys_mirror_add(pt) ;
-    if (sysFsRet) {
-        list_del_rcu(&pt->hash_head) ;        
-        kfree(pt) ;
-        up_write(sem) ;
-        return sysFsRet ;
-    }
+    record->uid = uid ;
+    list_add_rcu(&record->overflow_list, list) ;
 
     up_write(sem) ;
 
     return 0 ;
 }
 
-int hash_table_remove(throttleA_policy *policy, char *fullPath) {
-    struct hash_table *table;
-    int idx, ret = 0 ;
-    struct list_head *list, *pos ;
+int hash_table_remove_uid(uid_t uid) {
+    struct hash_table_record *ht_record ;
+    struct list_head *list ;
     struct rw_semaphore *sem ;
+    uid_record *record, *found = NULL;
 
-    table_from_policy(table, policy->policy) ;
-
-    if (table == NULL) return -ENOKEY ;
-
-    idx = evaluate_hash(policy->uid, fullPath) ;
-    list = &table->records[idx].overflow_list ;
-    sem = &table->records[idx].sem ;
-
+    ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
+    list = &ht_record->overflow_list;
+    sem = &ht_record->sem ;
     down_write(sem) ;
-    list_for_each_rcu(pos, list) {
-        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
-        const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
-        if (uid_condition && path_condition) {
-            atomic_xchg(&table->isActive,0) ;
-            ret = sys_mirror_rm(table) ;
-            if(ret) {
-                atomic_xchg(&table->isActive, 1) ;
-                up_write(sem) ;
-                break ;
-            }
-            list_del_rcu(pos) ;
-            up_write(sem) ;
-            synchronize_rcu() ;
-            kfree(table) ;
-            break ;
+    list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
+        if (record->uid == uid) {
+            found = record ;
         }
     }
 
-    return ret ;
-}
-
-int hash_table_delete(throttleA_policy *policy, char *fullPath) {
-    struct hash_table *table;
-    int idx ;
-    struct list_head *list, *pos ;
-
-    table_from_policy(table, policy->policy) ;
-
-    if (table == NULL) return -ENOKEY ;
-
-    idx = evaluate_hash(policy->uid, fullPath) ;
-    list = &table->records[idx].overflow_list ;
-
-    list_for_each_rcu(pos, list) {
-        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
-        const int uid_condition = policy->uid == table->policy.uid ;
-        const int path_condition = strcmp(fullPath, table->policy.path.pathName) == 0 ;
-        if (uid_condition && path_condition) {
-
-            for(int i = 0; i < DATA_PER_LIMIT(unsigned long); i++) {
-                atomic_long_andnot(policy->syscalls[i], &table->policy.syscalls[i]) ;
-            }
-
-            synchronize_rcu() ;
-            kfree(table) ;
-            break ;
-        }
+    if (found) {
+        list_del_rcu(&found->overflow_list) ;
+        synchronize_rcu() ;
+        kfree(found) ;
+        up_write(sem) ;
+        return 0 ;
     }
 
-    return 0 ;
+    up_write(sem) ;
+    return -ENOENT ;
 }
 
-static inline void clean_ht_overflow_list(struct hash_table_record *record, struct list_head *freeList) {
+static inline void clean_uid_ht_overflow_list(struct hash_table_record *record, struct list_head *freeList) {
     struct list_head *pos, *tmp ;
     down_write(&record->sem) ;
     pos = rcu_dereference(record->overflow_list.next) ;
     do {
-        policy_with_table *table ;
         tmp = pos ;
         pos = rcu_dereference(pos->next) ;
-
-        table = list_entry_rcu(tmp, policy_with_table, hash_head) ;
-        atomic_xchg(&table->isActive,0) ;
         list_del_rcu(tmp) ;
         list_add(tmp, freeList) ;
     } while (!list_is_head(pos, &record->overflow_list)) ;
@@ -227,78 +119,47 @@ static inline void clean_ht_overflow_list(struct hash_table_record *record, stru
 }
 
 void cleanup_hash_table(void) {
-    struct list_head *pos, *tmp, free_list ;
-    INIT_LIST_HEAD(&free_list) ;
+    struct list_head *pos, *tmp, uid_free_list ;
+    INIT_LIST_HEAD(&uid_free_list) ;
 
     clean_ht_sys_mirror() ;
 
     for (int i = 0; i < MODULUS; i++) {
-        clean_ht_overflow_list(&UID_TABLE.records[i], &free_list) ;
-        clean_ht_overflow_list(&PROGRAM_TABLE.records[i], &free_list) ;
-        clean_ht_overflow_list(&PROGRAM_UID_TABLE.records[i], &free_list) ;
+        clean_uid_ht_overflow_list(&UID_TABLE.records[i], &uid_free_list) ;
+        //clean_ht_overflow_list(&PROGRAM_TABLE.records[i], &free_list) ;
     }
 
     synchronize_rcu() ;
 
-    pos = free_list.next ;
+    pos = uid_free_list.next ;
     do {
         tmp = pos ;
         pos = pos->next ;
 
         list_del(tmp) ;
-        kfree(tmp) ;
-    } while (!list_is_head(pos, &free_list)) ;
+        kfree(container_of(tmp, uid_record, overflow_list)) ;
+    } while (!list_is_head(pos, &uid_free_list)) ;
 }
 
-static policy_with_table *hash_table_try_get(policy_kind policy, uid_t uid, const char *pathName) {
-    struct hash_table *table;
+static bool hash_table_has(uid_t uid) {
     int idx ;
     struct list_head *list, *pos ;
+    uid_record *record ;
 
-    table_from_policy(table, policy) ;
-    if (table == NULL) return NULL ;
+    idx = evaluate_uid_hash(uid) ;
+    list = &(&UID_TABLE)->records[idx].overflow_list ;
 
-    idx = evaluate_hash(uid, pathName) ;
-    list = &table->records[idx].overflow_list ;
+    rcu_read_lock() ;
 
-    list_for_each_rcu(pos, list) {
-        policy_with_table *table = list_entry_rcu(pos, policy_with_table, hash_head) ;
-        const int uid_condition = uid == table->policy.uid ;
-        const int path_condition = strcmp(pathName, table->policy.path.pathName) == 0 ;
-        if (uid_condition && path_condition) {
-            rcu_read_lock() ;
-            return table ;
+    if (uid >= 0) {
+        list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
+            if (uid == record->uid) {
+                true ;
+            }
         }
     }
+
+    rcu_read_unlock() ;
 
     return NULL ;
-}
-
-policy_with_table *hash_table_get(uid_t uid, const char *pathName) {
-    policy_with_table *retVal = hash_table_try_get(POLICY_UID_AND_PROGRAM, uid, pathName) ;
-    if (retVal) return retVal;
-
-    retVal = hash_table_try_get(POLICY_PROGRAM_ONLY, uid, pathName) ;
-    if (retVal) return retVal;
-
-    return hash_table_try_get(POLICY_UID_ONLY, uid, pathName) ;
-}
-
-void hash_table_put(void) {
-    rcu_read_unlock() ;
-}
-
-void hash_table_refresh(void) {
-    for (int i = 0; i < MODULUS; i++) {
-        struct list_head *pos ;
-        list_for_each_rcu(pos, &PROGRAM_UID_TABLE.records[i].overflow_list) {
-            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
-        }
-        list_for_each_rcu(pos, &UID_TABLE.records[i].overflow_list) {
-            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
-        }
-        list_for_each_rcu(pos, &PROGRAM_TABLE.records[i].overflow_list) {
-            atomic_long_xchg(&list_entry_rcu(pos, policy_with_table, hash_head)->throttle_counter, 0) ;
-        }
-    }
 }

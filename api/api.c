@@ -39,7 +39,7 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     unsigned int size ;
     unsigned int copied ;
     ssize_t retval ;
-    throttleA_policy *argp_copied  ;
+    void *argp_copied ;
 
     printk("%s code is %#08x, code & CODE_MASK is %#08x", MODNAME, code, code & CODE_MASK) ;
 
@@ -48,21 +48,32 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
         return set_throttler_on() ;
     } else if ((code & CODE_MASK) == THROTTLER_SET_DISABLE) {
         return set_throttler_off() ;
+    } else if ((code & CODE_MASK) == ADD_UID) {
+        return throttleA_uid_add(argp) ;
+    } else if ((code & CODE_MASK) == RM_UID) {
+        return throttleA_uid_rm(argp) ;
+    }
+
+    size = code & ~CODE_MASK ;
+    if (
+        ((code & CODE_MASK) == ADD_PATH || (code & CODE_MASK) == RM_PATH) &&
+        size != sizeof(throttleA_path)
+    ) { 
+        printk("%s: Data pointed by argp was not of correct size for path operations", MODNAME) ; 
+        return 1 ; 
+    } else if (
+        ((code & CODE_MASK) == ADD_SYSCALLS || (code & CODE_MASK) == RM_SYSCALLS) &&
+        size != sizeof(throttleA_syscall_map)
+    ) {
+        printk("%s: Data pointed by argp was not of correct size for path operations", MODNAME) ; 
+        return 1 ; 
     }
 
     argp_copied = kmem_cache_alloc(policies_cache, GFP_KERNEL) ; 
- 
     if (argp_copied == NULL) {
         printk("%s: Error allocating buffer for copying", MODNAME) ;
         return -ENOMEM ;
     }
-
-    size = code & ~CODE_MASK ;
-    if(size != sizeof(throttleA_policy)) { 
-        printk("%s: Data pointed by argp was not of correct size", MODNAME) ; 
-        kmem_cache_free(policies_cache, argp_copied) ;
-        return 1 ; 
-    } 
 
     copied = copy_from_user(argp_copied, (void *) argp, size) ;
     if (copied != 0) {
@@ -73,23 +84,21 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
 
     printk("%s: Copied data from user buffer", MODNAME) ;
 
-    if ((sizeof(throttleA_policy)) != size ) {
-        printk("%s: Error, the policy's declared size doesn't match what provided in the ioctl code, expected %d, got %ld", MODNAME, size, sizeof(throttleA_policy)) ;
-        kmem_cache_free(policies_cache, argp_copied) ;
-        return -EACCES ;
-    }
-
     switch (code & CODE_MASK) {
-        case ADD_POLICY :
-            retval = throttleA_policy_add(argp_copied) ;
+        case ADD_PATH :
+            retval = throttleA_path_add(argp_copied) ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
-        case RM_POLICY :
-            retval = throttleA_policy_rm(argp_copied) ;
+        case RM_PATH :
+            retval = throttleA_path_rm(argp_copied) ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
-        case DELETE_POLICY :
-            retval = throttleA_policy_delete(argp_copied) ;
+        case ADD_SYSCALLS :
+            retval = throttleA_syscalls_add(argp_copied) ;
+            kmem_cache_free(policies_cache, argp_copied) ;
+            return retval ;
+        case RM_SYSCALLS :
+            retval = throttleA_syscalls_rm(argp_copied) ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
         default :

@@ -16,38 +16,32 @@
 #include "include/hash_table/hash_table.h"
 #include "include/throttler_status/throttler_status.h"
 #include "include/oracles/oracles.h"
+#include "include/syscalls/syscalls.h"
 
-ssize_t throttleA_policy_add(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
-    ssize_t ret ;
-    if (IS_ERR_OR_NULL(fullPath)) {
-        return (ssize_t) PTR_ERR(fullPath) ;
-    }
-    ret = (ssize_t) hash_table_insert(policy, fullPath) ;
-    kfree(fullPath) ;
-    return ret ;
+ssize_t throttleA_uid_add(unsigned long) {
+    return 0 ;
 }
 
-ssize_t throttleA_policy_rm(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
-    ssize_t ret ;
-    if (IS_ERR_OR_NULL(fullPath)) {
-        return (ssize_t) PTR_ERR(fullPath) ;
-    }
-    ret = (ssize_t) hash_table_remove(policy, fullPath) ;
-    kfree(fullPath) ;
-    return ret ;
+ssize_t throttleA_uid_rm(unsigned long) {
+    return 0 ;
 }
 
-ssize_t throttleA_policy_delete(throttleA_policy *policy) {
-    char *fullPath = pathname_oracle(policy->path.pathName) ;
-    ssize_t ret ;
-    if (IS_ERR_OR_NULL(fullPath)) {
-        return (ssize_t) PTR_ERR(fullPath) ;
-    }
-    ret = (ssize_t) hash_table_delete(policy, fullPath) ;
-    kfree(fullPath) ;
-    return ret ;
+ssize_t throttleA_path_add(throttleA_path *) {
+    return 0 ;
+}
+
+ssize_t throttleA_path_rm(throttleA_path *) {
+    return 0 ;
+}
+
+ssize_t throttleA_syscalls_add(throttleA_syscall_map *map) {
+    monitor_syscalls(map) ;
+    return 0 ;
+}
+
+ssize_t throttleA_syscalls_rm(throttleA_syscall_map *map) {
+    unmonitor_syscalls(map) ;
+    return 0 ;
 }
 
 ssize_t set_throttler_on() {
@@ -58,8 +52,4 @@ ssize_t set_throttler_on() {
 ssize_t set_throttler_off() {
     set_throttler_status_off() ;
     return 0 ;
-}
-
-throttleA_policy *dump_throttleA_status() {
-    return NULL ;
 }
