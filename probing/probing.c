@@ -9,10 +9,14 @@
 #include <linux/ptrace.h>       
 #include <linux/syscalls.h>
 #include <linux/version.h>
+#include <linux/ktime.h>
 
 #include "include/names/names.h"
 #include "include/probing/probing.h"
 #include "include/hash_table/hash_table.h"
+#include "include/hash_table/tree.h"
+#include "include/syscalls/syscalls.h"
+#include "include/stats/stats.h"
 #include "include/timers/timers.h"
 #include "include/throttler_status/throttler_status.h"
 
@@ -59,44 +63,43 @@ struct file *get_task_exe_file(struct task_struct *task)
 }
 
 static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
+    char *pathBuffer, *pathPtr = NULL ;
     struct pt_regs *syscall_regs = ((struct pt_regs *)regs->di) ;
     const unsigned long syscall_code = syscall_regs->ax ;
-    kuid_t thread_uid = current_cred()->uid ;
+    uid_t thread_uid = current_cred()->uid.val ;
 
     struct file *thread_file = get_task_exe_file(current) ;
     const char *thread_name = thread_file->f_path.dentry->d_name.name ;
 
+    pathBuffer = kmalloc(2*PAGE_SIZE, GFP_KERNEL | GFP_ATOMIC) ;
+    if (IS_ERR_OR_NULL(pathBuffer)) {
+        printk(KERN_DEBUG "Memory could not be allocated for thread %d, decision will be performed only on uid\n", thread_uid) ;
+    } else {
+        pathPtr = file_path(thread_file, pathBuffer, 2*PAGE_SIZE) ;
+        if (IS_ERR(pathPtr)) {
+            printk(KERN_DEBUG "Path name resolution was incomplete for thread %d, decision will be only on UID\n", thread_uid) ;
+            pathPtr = NULL ;
+        }
+    }
+
     THROTTLER_STATUS status = down_throttler_status(THROTTLER_LOCK_READ) ;
     if (status == ON) {
-        unsigned int again ;
-        do {
-            int contained = 0 ;
-            policy_with_table *policy = hash_table_get(thread_uid.val, thread_name) ;
-            unsigned int tolerance = atomic_read(&policy->policy.tolerance) ;
-            unsigned long bitmask ;
+        if (
+            is_syscall_monitored(syscall_code) &&
+            ( hash_table_has(thread_uid) || ( pathPtr != NULL && path_tree_has(pathPtr) ) ) &&
+            should_sleep()
+        ) {
+            ktime_t start, end ;
+            start = ktime_get() ;
+            throttle() ;
+            end = ktime_get() ;
 
-            if (policy == NULL || !(atomic_read(&policy->isActive))) {
-                hash_table_put() ;
-                break;
-            } ;
-            bitmask = 1UL << (syscall_code % (sizeof(unsigned long) *8)) ;
-            contained = atomic_long_read(&policy->policy.syscalls[syscall_code / (sizeof(unsigned long) *8)]) & bitmask ;
-            if (!contained) {
-                hash_table_put() ;
-                break;
-            }
-            again = 0 ;
-            if(atomic_long_read(&policy->throttle_counter) >= tolerance) {
-                hash_table_put() ;
-                again = throttle() ;
-            } else {
-                atomic_long_inc(&policy->throttle_counter) ;
-                hash_table_put() ;
-            }
-        } while (again) ;
+            register_delay(end - start, thread_uid, pathPtr) ;
+        }
     }
     up_throttler_status(THROTTLER_LOCK_READ) ;
     
+    if (pathPtr) kfree(pathBuffer) ;
     fput(thread_file) ;
 
     return 0 ;

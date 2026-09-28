@@ -11,24 +11,12 @@
 #include <linux/version.h>
 
 #include "include/throttler_status/throttler_status.h"
-
-atomic_long_t MAX ;
-
-static struct stats_register {
-    atomic_long_t tolerance;
-    spinlock_t reg_lock ;
-
-    unsigned long peak_blocked ;
-    unsigned long sum_blocked ;
-    unsigned long num_blocked ;
-
-    unsigned long peak_delay ;
-    unsigned long peak_uid ;
-    unsigned char peak_name[2*PAGE_SIZE] ;
-} ;
+#include "include/stats/stats.h"
 
 static struct stats_register stats[2] = {
     {
+        .MAX = ULONG_MAX,
+
         .peak_blocked = 0UL,
         .sum_blocked = 0UL,
         .num_blocked = 0UL,
@@ -38,6 +26,7 @@ static struct stats_register stats[2] = {
         .peak_name = { '\0' },
     },
     {
+        .MAX = ULONG_MAX,
         .peak_blocked = 0UL,
         .sum_blocked = 0UL,
         .num_blocked = 0UL,
@@ -58,7 +47,6 @@ void init_stats(void) {
     spin_lock_init(&stats[0].reg_lock) ;
     spin_lock_init(&stats[1].reg_lock) ;
 
-    atomic_long_set(&MAX, ULONG_MAX) ;
     atomic_long_set(&stat_ptr, stats) ;
     atomic_long_set(&stats[0].tolerance, 0) ;
     atomic_long_set(&stats[1].tolerance, 0) ;
@@ -67,29 +55,41 @@ void init_stats(void) {
 }
 
 void reset_max_value(unsigned long max) {
-    struct stats_register *oldStats ;
+    struct stats_register *oldStats, *newStats;
     spin_lock(&max_lock) ;
 
     oldStats = &stats[current_index] ;
     current_index = (current_index +1) %2 ;
-    atomic_long_xchg(&MAX, max) ;
-    atomic_long_xchg(&stat_ptr, &stats[current_index]) ;
+    newStats = &stats[current_index] ;
+
+    newStats->MAX = max ;
+
+    atomic_long_xchg(&stat_ptr, newStats) ;
+
+    synchronize_rcu() ;
 
     atomic_long_set(&oldStats->tolerance, 0) ;
 
-    oldStats->peak_blocked = 0UL,
-    oldStats->sum_blocked = 0UL,
-    oldStats->num_blocked = 0UL,
+    spin_lock(&oldStats->reg_lock) ;
 
-    oldStats->peak_delay = 0,
-    oldStats->peak_uid = 0,
-    oldStats->peak_name[0] = '\0',
-    
+    oldStats->peak_blocked = 0UL ;
+    oldStats->sum_blocked = 0UL ;
+    oldStats->num_blocked = 0UL ;
+
+    oldStats->peak_delay = 0 ;
+    oldStats->peak_uid = 0 ;
+    oldStats->peak_name[0] = '\0' ;
+
+    spin_unlock(&oldStats->reg_lock) ;
+
     spin_unlock(&max_lock) ;
 }
 
 void register_delay(unsigned long delay, uid_t uid, char *progName) {
-    struct stats_register *reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
+    struct stats_register *reg ;
+
+    rcu_read_lock() ;
+    reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
 
     spin_lock(&reg->reg_lock) ;
 
@@ -100,29 +100,57 @@ void register_delay(unsigned long delay, uid_t uid, char *progName) {
     } 
 
     spin_unlock(&reg->reg_lock) ;
+    rcu_read_lock() ;
     return ;
 }
 
-void update_tolerance(void) {
-    struct stats_register *reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
-    unsigned long tolerance = atomic_long_xchg(&reg->tolerance, 0) ;
+void reset_tolerance(void) {
+    struct stats_register *reg ;
+    unsigned long tolerance ;
 
-    spin_lock(&reg->reg_lock) ;
+    rcu_read_lock() ;
+    reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
+    tolerance = atomic_long_xchg(&reg->tolerance, 0) ;
 
+    if (tolerance > reg->MAX) {
+        unsigned long excess = tolerance - reg->MAX ;
+        spin_lock(&reg->reg_lock) ;
 
-    if (tolerance > reg->peak_blocked) reg->peak_blocked = tolerance ;
-    if (unlikely(ULONG_MAX - reg->sum_blocked < tolerance || reg->num_blocked == (ULONG_MAX -1))) {
-        reg->sum_blocked = reg->sum_blocked / reg->num_blocked + tolerance ;
-        reg->num_blocked = 1 ;
-    } else {
-        reg->sum_blocked += tolerance ;
-        reg->num_blocked++ ;
+        if (excess > reg->peak_blocked) reg->peak_blocked = excess ;
+        if (unlikely(ULONG_MAX - reg->sum_blocked < excess || reg->num_blocked == (ULONG_MAX -1))) {
+            reg->sum_blocked = reg->sum_blocked / reg->num_blocked + excess ;
+            reg->num_blocked = 1 ;
+        } else {
+            reg->sum_blocked += excess ;
+            reg->num_blocked++ ;
+        }
+
+        spin_unlock(&reg->reg_lock) ;
     }
+    rcu_read_unlock() ;
+    return ;
+}
 
-    spin_unlock(&reg->reg_lock) ;
+void dump_stats(struct stats_register *reg) {
+    struct stats_register *src ;
+    unsigned long tolerance ;
+
+    rcu_read_lock() ;
+    src = (struct stats_register *) atomic_long_read(&stat_ptr) ;
+    memcpy(reg, src, sizeof(struct stats_register)) ;
+
+    rcu_read_unlock() ;
     return ;
 }
 
 bool should_sleep(void) {
-    unsigned long max = atomic_long_read(&MAX) ;
+    struct stats_register *reg ;
+    unsigned long tolerance ;
+
+    rcu_read_lock() ;
+    reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
+    tolerance = atomic_long_inc_return(&reg->tolerance) ;
+
+    rcu_read_unlock() ;
+    return tolerance > reg->MAX ;
 }

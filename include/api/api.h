@@ -3,6 +3,9 @@
 
 #include <linux/limits.h>
 
+#include "include/syscalls/syscalls.h"
+#include "include/stats/stats.h"
+
 #define SYSCALL_LIMIT 500
 #define DATA_PER_LIMIT(type) (SYSCALL_LIMIT + sizeof(type) * 8 -1) / (sizeof(type) * 8)
 #define TYPE_ARRAY_PER_LIMIT(type, property) type property[DATA_PER_LIMIT(type)]
@@ -36,7 +39,7 @@ typedef struct _throttleA_syscall_map throttleA_syscall_map ;
 
 
 /******** Operation addUid: ********
-    OPCODE    : 0b000
+    OPCODE    : 0b0000
     OPMACRO   : ADD_UID
     OPARG     : unsigned long
     OPARGTYPE : IN
@@ -46,11 +49,10 @@ typedef struct _throttleA_syscall_map throttleA_syscall_map ;
 */
 #define ADD_UID 0x00000000
 
-
 ssize_t throttleA_uid_add(unsigned long) ;
 
 /******** Operation removeUid: ********
-    OPCODE    : 0b001
+    OPCODE    : 0b0001
     OPMACRO   : RM_UID
     OPARG     : unsigned long
     OPARGTYPE : IN
@@ -58,12 +60,12 @@ ssize_t throttleA_uid_add(unsigned long) ;
 
     Description : removes a uid being monitored by the throttling manager.
 */
-#define RM_UID 0x20000000
+#define RM_UID 0x10000000
 
 ssize_t throttleA_uid_rm(unsigned long) ;
 
 /******** Operation addPath: ********
-    OPCODE    : 0b010
+    OPCODE    : 0b0010
     OPMACRO   : ADD_PATH
     OPARG     : throttleA_path *
     OPARGTYPE : IN
@@ -71,12 +73,12 @@ ssize_t throttleA_uid_rm(unsigned long) ;
 
     Description : adds a path to be monitored by the throttling manager.
 */
-#define ADD_PATH 0x40000000
+#define ADD_PATH 0x20000000
 
 ssize_t throttleA_path_add(throttleA_path *) ;
 
 /******** Operation rmPath: ********
-    OPCODE    : 0b011
+    OPCODE    : 0b0011
     OPMACRO   : RM_PATH
     OPARG     : throttleA_path *
     OPARGTYPE : IN
@@ -84,12 +86,12 @@ ssize_t throttleA_path_add(throttleA_path *) ;
 
     Description : removes a path being monitored by the throttling manager.
 */
-#define RM_PATH 0x60000000
+#define RM_PATH 0x30000000
 
 ssize_t throttleA_path_rm(throttleA_path *) ;
 
 /******** Operation addSyscalls: ********
-    OPCODE    : 0b100
+    OPCODE    : 0b0100
     OPMACRO   : ADD_SYSCALLS
     OPARG     : throttleA_syscall_map *
     OPARGTYPE : IN
@@ -97,12 +99,12 @@ ssize_t throttleA_path_rm(throttleA_path *) ;
 
     Description : adds some syscalls to be monitored by the throttling manager.
 */
-#define ADD_SYSCALLS 0x80000000
+#define ADD_SYSCALLS 0x40000000
 
 ssize_t throttleA_syscalls_add(throttleA_syscall_map *) ;
 
 /******** Operation rmSyscalls: ********
-    OPCODE    : 0b101
+    OPCODE    : 0b0101
     OPMACRO   : RM_SYSCALLS
     OPARG     : throttleA_syscall_map *
     OPARGTYPE : IN
@@ -110,12 +112,51 @@ ssize_t throttleA_syscalls_add(throttleA_syscall_map *) ;
 
     Description : removes some syscalls being monitored by the throttling manager.
 */
-#define RM_SYSCALLS 0xA0000000
+#define RM_SYSCALLS 0x50000000
 
 ssize_t throttleA_syscalls_rm(throttleA_syscall_map *) ;
 
+/******** Operation dumpSyscalls: ********
+    OPCODE    : 0b0110
+    OPMACRO   : DUMP_SYSCALLS
+    OPARG     : throttleA_syscall_map *
+    OPARGTYPE : OUT
+    ARGSIZE   : sizeof(throttleA_syscall_map)
+
+    Description : Dumps the syscalls being monitored by the throttling manager
+*/
+#define DUMP_SYSCALLS 0x60000000
+
+ssize_t throttleA_syscalls_dump(throttleA_syscall_map *) ;
+
+/******** Operation dumpStats: ********
+    OPCODE    : 0b0111
+    OPMACRO   : DUMP_STATS
+    OPARG     : throttleA_syscall_map *
+    OPARGTYPE : OUT
+    ARGSIZE   : sizeof(throttleA_syscall_map)
+
+    Description : Dumps the syscalls being monitored by the throttling manager
+*/
+#define DUMP_STATS 0x70000000
+
+ssize_t throttleA_stats_dump(struct stats_register *) ;
+
+/******** Operation resetMax: ********
+    OPCODE    : 0b1000
+    OPMACRO   : RESET_MAX
+    OPARG     : unsigned long
+    OPARGTYPE : IN
+    ARGSIZE   : sizeof(unsigned long)
+
+    Description : Dumps the syscalls being monitored by the throttling manager
+*/
+#define RESET_MAX 0x80000000
+
+ssize_t throttleA_reset_max(unsigned long) ;
+
 /******** Operation setThrottler: ********
-    OPCODE    : 0b110
+    OPCODE    : 0b1001
     OPMACRO   : THROTTLER_SET_ENABLE
     OPARG     : void
     OPARGTYPE : IN
@@ -123,12 +164,12 @@ ssize_t throttleA_syscalls_rm(throttleA_syscall_map *) ;
 
     Description : sets the throttler's on/off state
 */
-#define THROTTLER_SET_ENABLE 0xC0000000
+#define THROTTLER_SET_ENABLE 0x90000000
 
 ssize_t set_throttler_on(void) ;
 
 /******** Operation setThrottler: ********
-    OPCODE    : 0b111
+    OPCODE    : 0b1010
     OPMACRO   : THROTTLER_SET_DISABLE
     OPARG     : void
     OPARGTYPE : IN
@@ -136,7 +177,7 @@ ssize_t set_throttler_on(void) ;
 
     Description : sets the throttler's on/off state
 */
-#define THROTTLER_SET_DISABLE 0xE0000000
+#define THROTTLER_SET_DISABLE 0xA0000000
 
 ssize_t set_throttler_off(void) ;
 

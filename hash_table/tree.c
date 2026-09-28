@@ -16,12 +16,38 @@
 #include "include/utils/seeds.h"
 #include "include/utils/strings.h"
 
+
+/**
+ * Object that manages the read state for the UID hash table
+ */
+struct pt_file_handle {
+    path_tree_entry *curr ;
+    int state ;
+
+    int depth ;
+    bool children_visited ;
+
+} ;
+
+static struct pt_file_handle handle ;
+
+static rwlock_t PT_LOCK ;
+
 static inline void lock_path_tree_entry(path_tree_entry *entry) {
     mutex_lock(&entry->entry_mutex) ;
 }
 
 static inline void unlock_path_tree_entry(path_tree_entry *entry) {
     mutex_unlock(&entry->entry_mutex) ;
+}
+
+static inline void unlock_all_entries(path_tree_entry *entry) {
+    path_tree_entry *base = entry ;
+    do {
+        unlock_path_tree_entry(base) ;
+        if (base == &ROOT) return ;
+        base = base->parent ;
+    } while (1) ;
 }
 
 static inline bool check_entry_path(struct qstr *name, char *pathComponent) {
@@ -59,10 +85,91 @@ static inline void CLEANUP_PATH_TREE_ENTRY(path_tree_entry *root) {
 
 path_tree_entry ROOT ;
 
-path_tree_entry *insert_path_tree_entry(char *fullPath) {
+static inline void remove_path_tree_entry_by_entry(path_tree_entry *entry) {
+    entry->entry_status = PATH_TREE_ENTRY_INACTIVE ;
+    path_tree_entry *base = entry ;
+    struct list_head remove_queue, *pos, *tmp;
+    
+    do {
+        if (base == &ROOT) break ;
+
+        if (list_empty(&base->children) && base->entry_status == PATH_TREE_ENTRY_INACTIVE) {
+            path_tree_entry *toRemove = base ;
+            base = base->parent ;
+            list_del_rcu(&toRemove->siblings) ;
+            list_add_tail(&toRemove->remove_list, &remove_queue) ;
+        } else break ;
+
+    } while (1) ;
+
+    do {
+        if (base == &ROOT) break ;
+        write_unlock_path_tree_entry(base) ;
+        base = base->parent ;
+    } while (1) ;
+
+    synchronize_rcu() ;
+
+    pos = remove_queue.next ;
+    do {
+        tmp = pos ;
+        pos = pos->next ;
+
+        list_del(tmp) ;
+        kfree(container_of(tmp, path_tree_entry, remove_list)->name.name) ;
+        kfree(container_of(tmp, path_tree_entry, remove_list)) ;
+    } while (!list_is_head(pos, &remove_queue)) ;
+
+    return ;
+}
+
+static inline void remove_path_tree_entry(char *fullPath) {
+    char *pathPtr = fullPath +1;
+    path_tree_entry *base = &ROOT, *toRemove ;
+
+    if (read_trylock(&PT_LOCK)) return -EBUSY ;
+    lock_path_tree_entry(&ROOT) ;
+
+    do {
+        path_tree_entry *entry ;
+        list_for_each_entry_rcu(entry, &base->children, siblings) {
+            if (check_entry_path(&entry->name.name, pathPtr)) {
+                lock_path_tree_entry(entry) ;
+                base = entry ;
+                goto incr_step;
+            } else {
+                goto err_step;
+            }
+        }
+
+incr_step:
+        pathPtr += slashlen(pathPtr) ;
+
+        if (*pathPtr == '\0' && base->entry_status == PATH_TREE_ENTRY_ACTIVE) {
+            toRemove = base ;
+            break ;
+        }
+        else goto err_step ;
+        pathPtr++ ;
+        continue ;
+
+err_step:
+        unlock_all_entries(base) ;
+        read_unlock(&PT_LOCK) ;
+        return ;
+    } while (1) ;
+
+
+    remove_path_tree_entry_by_entry(toRemove) ;
+    read_unlock(&PT_LOCK) ;
+    return ;
+}
+
+int insert_path_tree_entry(char *fullPath) {
     char *pathPtr = fullPath +1;
     path_tree_entry *base = &ROOT ;
 
+    if (read_trylock(&PT_LOCK)) return -EBUSY ;
     lock_path_tree_entry(&ROOT) ;
 
     do {
@@ -115,10 +222,12 @@ incr_step:
         if (*pathPtr == '\0') {
             if (newEntry) {
                 newEntry->entry_status = PATH_TREE_ENTRY_ACTIVE ;
-                return newEntry ;
+                read_unlock(&PT_LOCK) ;
+                return 0 ;
             }
             base->entry_status = PATH_TREE_ENTRY_ACTIVE ;
-            return base ;
+            read_unlock(&PT_LOCK) ;
+            return 0 ;
         }
         pathPtr++ ;
 
@@ -129,16 +238,8 @@ free_allocations:
     if (base->parent != base) unlock_path_tree_entry(base->parent) ;
     remove_path_tree_entry(fullPath) ;
 
-    return NULL ;
-}
-
-static inline void unlock_all_entries(path_tree_entry *entry) {
-    path_tree_entry *base = entry ;
-    do {
-        unlock_path_tree_entry(base) ;
-        if (base == &ROOT) return ;
-        base = base->parent ;
-    } while (1) ;
+    read_unlock(&PT_LOCK) ;
+    return -ENOMEM ;
 }
 
 bool path_tree_has(const char *fullPath) {
@@ -166,84 +267,16 @@ bool path_tree_has(const char *fullPath) {
     } while (1) ;
 }
 
-static inline void remove_path_tree_entry_by_entry(path_tree_entry *entry) {
-    entry->entry_status = PATH_TREE_ENTRY_INACTIVE ;
-    path_tree_entry *base = entry ;
-    struct list_head remove_queue, *pos, *tmp;
-    
-    do {
-        if (base == &ROOT) break ;
-
-        if (list_empty(&base->children) && base->entry_status == PATH_TREE_ENTRY_INACTIVE) {
-            path_tree_entry *toRemove = base ;
-            base = base->parent ;
-            list_del_rcu(&toRemove->siblings) ;
-            list_add_tail(&toRemove->remove_list, &remove_queue) ;
-        } else break ;
-
-    } while (1) ;
-
-    do {
-        if (base == &ROOT) break ;
-        write_unlock_path_tree_entry(base) ;
-        base = base->parent ;
-    } while (1) ;
-
-    synchronize_rcu() ;
-
-    pos = remove_queue.next ;
-    do {
-        tmp = pos ;
-        pos = pos->next ;
-
-        list_del(tmp) ;
-        kfree(container_of(tmp, path_tree_entry, remove_list)->name.name) ;
-        kfree(container_of(tmp, path_tree_entry, remove_list)) ;
-    } while (!list_is_head(pos, &remove_queue)) ;
-
-    return ;
+int path_tree_lock(void) {
+    return write_trylock(&PT_LOCK) ;
 }
 
-static inline void remove_path_tree_entry(char *fullPath) {
-    char *pathPtr = fullPath +1;
-    path_tree_entry *base = &ROOT, *toRemove ;
-
-    lock_path_tree_entry(&ROOT) ;
-
-    do {
-        path_tree_entry *entry ;
-        list_for_each_entry_rcu(entry, &base->children, siblings) {
-            if (check_entry_path(&entry->name.name, pathPtr)) {
-                lock_path_tree_entry(entry) ;
-                base = entry ;
-                goto incr_step;
-            } else {
-                goto err_step;
-            }
-        }
-
-incr_step:
-        pathPtr += slashlen(pathPtr) ;
-
-        if (*pathPtr == '\0' && base->entry_status == PATH_TREE_ENTRY_ACTIVE) {
-            toRemove = base ;
-            break ;
-        }
-        else goto err_step ;
-        pathPtr++ ;
-        continue ;
-
-err_step:
-        unlock_all_entries(base) ;
-        return ;
-    } while (1) ;
-
-
-    remove_path_tree_entry_by_entry(toRemove) ;
-    return ;
+void path_tree_unlock(void) {
+    write_unlock(&PT_LOCK) ;
 }
 
 void init_path_tree(void) {
+    rwlock_init(&PT_LOCK) ;
     INIT_PATH_TREE_ENTRY(&ROOT) ;
     return ;
 }
@@ -251,4 +284,93 @@ void init_path_tree(void) {
 void cleanup_path_tree(void) {
     CLEANUP_PATH_TREE_ENTRY(&ROOT) ;
     return ;
+
+}
+
+static inline int keep_reading(char __user *buf, ssize_t len) {
+    int remaining, parsedlen, toWrite, written, bufIdx = 0 ;
+
+    parsedlen = handle.curr->name.len + handle.depth + 3 ;
+
+    remaining = parsedlen - handle.state ;
+
+    if (!remaining) {
+        do {
+            handle.state = 0 ;
+            if (!list_empty(&handle.curr->children) && !handle.children_visited) {
+                handle.depth++ ;
+                handle.curr = container_of(&handle.curr->children.next, path_tree_entry, siblings) ;
+                break ;
+            } else {
+                if (!list_is_last(&handle.curr->siblings, &handle.curr->parent->children)) {
+                    handle.curr = container_of(&handle.curr->siblings.next, path_tree_entry, siblings) ;
+                    handle.children_visited = false ;
+                    break ;
+                } else {
+                    handle.depth-- ;
+                    if (handle.depth == 0) {
+                        return 0 ;
+                    }
+                    handle.curr = handle.curr->parent ;
+                    handle.children_visited = true ;
+                }
+            }
+        } while (1) ;
+    }
+
+    written = toWrite = min(remaining, len) ;
+
+    for (; handle.state < handle.depth && toWrite > 0 ; handle.state++, toWrite--, bufIdx++) buf[bufIdx] = '\t' ;
+
+    if ((handle.state - handle.depth) < handle.curr->name.len && toWrite > 0) {
+        int writablepath = (handle.curr->name.len - (handle.state - handle.depth)) ;
+        int internalToWrite = min(writablepath, toWrite) ;
+        copy_to_user(buf + bufIdx, handle.curr->name.name + handle.state - handle.depth, internalToWrite) ;
+        toWrite -= internalToWrite ;
+        handle.state += internalToWrite ;
+        bufIdx += internalToWrite ;
+    }
+
+    if (toWrite) {
+        buf[bufIdx] = ' ' ;
+        toWrite-- ;
+        bufIdx++ ;
+        handle.state++ ;
+    }
+
+    if (toWrite) {
+        buf[bufIdx] = handle.curr->entry_status == PATH_TREE_ENTRY_ACTIVE ? 'x' : ' ' ;
+        toWrite-- ;
+        bufIdx++ ;
+        handle.state++ ;
+    }
+
+    if (toWrite) {
+        buf[bufIdx] = '\n' ;
+        toWrite-- ;
+        bufIdx++ ;
+        handle.state++ ;
+    }
+
+    return written ;
+}
+
+ssize_t pt_file_handle_read(char __user *buf, ssize_t len) {
+    int read = 0, cum = 0 ;
+
+    if ((handle.curr == &ROOT && handle.children_visited)) return 0 ;
+
+    do {
+        read = keep_reading(buf + cum, len - cum) ;
+        cum += read ;
+    } while (cum < len || read == 0) ;
+
+    return cum ;
+}
+
+void reset_pt_file_handle(void) {
+    handle.curr = &ROOT ;
+    handle.children_visited = false ;
+    handle.depth = 0 ;
+    handle.state = 0 ;
 }

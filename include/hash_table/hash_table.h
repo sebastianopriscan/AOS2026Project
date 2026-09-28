@@ -31,10 +31,26 @@ int hash_table_insert_uid(uid_t uid) ;
 int hash_table_remove_uid(uid_t uid) ;
 
 /**
+ * Trylock the whole hash table for
+ * dumping purposes
+ * 
+ * @return 0 if the lock is acquired, 1 otherwise
+ */
+int hash_table_lock(void) ;
+
+/**
+ * Unlock the previously locked whole hash table
+ */
+void hash_table_unlock(void) ;
+
+/**
  * Get a policy table entry
  * @param uid: The thread's effective user id
  * @returns A boolean indicating the uid is contained in the table or not
  */
 bool hash_table_has(uid_t uid) ;
+
+ssize_t ht_file_handle_read(char __user *buf, ssize_t len) ;
+void reset_ht_file_handle(void) ;
 
 #endif

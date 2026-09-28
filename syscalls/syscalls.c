@@ -6,7 +6,7 @@ static struct mutex syscalls_mutex ;
 static unsigned int idx = 0 ;
 
 throttleA_syscall_map maps[2] ;
-throttleA_syscall_map *syscalls = maps ;
+atomic_long_t syscalls ;
 
 void monitor_syscalls(throttleA_syscall_map *newSyscalls) {
     int i ;
@@ -24,7 +24,7 @@ void monitor_syscalls(throttleA_syscall_map *newSyscalls) {
         new->map[i] |= newSyscalls->map[i] ;
     }
 
-    syscalls = &maps[idx] ;
+    atomic_long_xchg(&syscalls, &maps[idx]) ;
     synchronize_rcu() ;
     mutex_unlock(&syscalls_mutex) ;
 }
@@ -46,14 +46,27 @@ void unmonitor_syscalls(throttleA_syscall_map *newSyscalls) {
         new->map[i] &= ~(newSyscalls->map[i]) ;
     }
 
-    syscalls = &maps[idx] ;
+    atomic_long_xchg(&syscalls, &maps[idx]) ;
     synchronize_rcu() ;
     mutex_unlock(&syscalls_mutex) ;
+}
+
+void dump_syscalls(throttleA_syscall_map *map) {
+    throttleA_syscall_map *src ; 
+
+    rcu_read_lock() ;
+
+    src = atomic_long_read(&syscalls) ; 
+    memcpy(map, src, sizeof(throttleA_syscall_map)) ;
+
+    rcu_read_unlock() ;
+    return ;
 }
 
 void init_syscall_monitor(void) {
     int i ;
 
+    atomic_long_set(&syscalls, maps) ;
     mutex_init(&syscalls_mutex) ;
 
     for (i = 0; i < DATA_PER_LIMIT(throttleA_syscall_map_type); i++) {

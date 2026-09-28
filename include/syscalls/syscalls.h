@@ -6,7 +6,7 @@
 #include "include/api/api.h"
 
 
-extern throttleA_syscall_map *syscalls ;
+extern atomic_long_t syscalls ;
 
 /**
  * Add the syscalls contained in the map
@@ -24,13 +24,20 @@ void monitor_syscalls(throttleA_syscall_map *newSyscalls) ;
  */
 void unmonitor_syscalls(throttleA_syscall_map *newSyscalls) ;
 
+/**
+ * Dump the currently managed syscalls
+ * 
+ * @param map: Area in which the status wil be dumped 
+ */
+void dump_syscalls(throttleA_syscall_map *map) ;
+
 static inline int is_syscall_monitored(unsigned long syscall) {
     int entry = syscall / sizeof(throttleA_syscall_map_type) ; 
     int index = syscall % sizeof(throttleA_syscall_map_type) ;
     int result ;
     rcu_read_lock() ;
 
-    result = syscalls->map[entry] & ((throttleA_syscall_map_type) 1UL << index) ;
+    result = ((throttleA_syscall_map *) atomic_long_read(&syscalls))->map[entry] & ((throttleA_syscall_map_type) 1UL << index) ;
 
     rcu_read_unlock() ;
     return result ;

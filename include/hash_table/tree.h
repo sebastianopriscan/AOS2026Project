@@ -49,9 +49,15 @@ typedef struct _path_tree_entry {
  * Obtain the path_tree_entry corresponding to the passed fullPath, creating it if needed
  *
  * @param fullPath The path being searched
- * @returns the corresponding path_tree_entry, or ERR_PTR in case of errors.
+ * @returns 0 in case of positive return, an error code otherwise
  */
-path_tree_entry *insert_path_tree_entry(char *fullPath) ;
+int insert_path_tree_entry(char *fullPath) ;
+
+/**
+ * Unbind the path_with_table pt from the path_tree, removing entries if not busy (either with children or with associated path_with_table entries)
+ * @param fullPath The path being removed
+ */
+void remove_path_tree_entry(char *fullPath) ;
 
 /**
  * Check if the fullPath is under management of the path_tree
@@ -62,13 +68,24 @@ path_tree_entry *insert_path_tree_entry(char *fullPath) ;
 bool path_tree_has(char *fullPath) ;
 
 /**
- * Unbind the path_with_table pt from the path_tree, removing entries if not busy (either with children or with associated path_with_table entries)
- * @param fullPath The path being removed
+ * Trylock the whole path tree for
+ * dumping purposes
+ * 
+ * returns 0 if the lock is acquired, 1 otherwise
  */
-void remove_path_tree_entry(char *fullPath) ;
+int path_tree_lock(void) ;
+
+/**
+ * Unlock the previously locked whole path tree
+ */
+void path_tree_unlock(void) ;
 
 void init_path_tree(void) ;
 
 void cleanup_path_tree(void) ;
+
+ssize_t pt_file_handle_read(char __user *buf, ssize_t len) ;
+void reset_pt_file_handle(void) ;
+
 
 #endif

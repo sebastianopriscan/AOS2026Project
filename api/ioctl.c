@@ -14,23 +14,25 @@
 
 #include "include/api/api.h"
 #include "include/hash_table/hash_table.h"
+#include "include/hash_table/tree.h"
 #include "include/throttler_status/throttler_status.h"
 #include "include/oracles/oracles.h"
 #include "include/syscalls/syscalls.h"
 
-ssize_t throttleA_uid_add(unsigned long) {
-    return 0 ;
+ssize_t throttleA_uid_add(unsigned long uid) {
+    return hash_table_insert_uid(uid) ;
 }
 
-ssize_t throttleA_uid_rm(unsigned long) {
-    return 0 ;
+ssize_t throttleA_uid_rm(unsigned long uid) {
+    return hash_table_remove_uid(uid) ;
 }
 
-ssize_t throttleA_path_add(throttleA_path *) {
-    return 0 ;
+ssize_t throttleA_path_add(throttleA_path *path) {
+    return insert_path_tree_entry(path->pathName) ;
 }
 
-ssize_t throttleA_path_rm(throttleA_path *) {
+ssize_t throttleA_path_rm(throttleA_path *path) {
+    remove_path_tree_entry(path->pathName) ;
     return 0 ;
 }
 
@@ -41,6 +43,21 @@ ssize_t throttleA_syscalls_add(throttleA_syscall_map *map) {
 
 ssize_t throttleA_syscalls_rm(throttleA_syscall_map *map) {
     unmonitor_syscalls(map) ;
+    return 0 ;
+}
+
+ssize_t throttleA_syscalls_dump(throttleA_syscall_map *map) {
+    dump_syscalls(map) ;
+    return 0 ;
+}
+
+ssize_t throttleA_stats_dump(struct stats_register *map) {
+    dump_stats(map) ;
+    return 0 ;
+}
+
+ssize_t throttleA_reset_max(unsigned long max) {
+    reset_max_value(max) ;
     return 0 ;
 }
 

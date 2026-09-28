@@ -22,8 +22,7 @@ MODULE_DESCRIPTION("This module implements a throttler for system calls invocati
 #include "include/hash_table/hash_table.h"
 
 static int throttleA_init(void) {
-
-	if (init_hash_table()) return 1 ;
+	init_hash_table() ;
 	setup_throttler_status();
 	if (setup_preempt_kprobe() != 0) {
 		cleanup_hash_table() ;
