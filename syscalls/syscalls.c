@@ -24,7 +24,7 @@ void monitor_syscalls(throttleA_syscall_map *newSyscalls) {
         new->map[i] |= newSyscalls->map[i] ;
     }
 
-    atomic_long_xchg(&syscalls, &maps[idx]) ;
+    atomic_long_xchg(&syscalls, (long) &maps[idx]) ;
     synchronize_rcu() ;
     mutex_unlock(&syscalls_mutex) ;
 }
@@ -46,7 +46,7 @@ void unmonitor_syscalls(throttleA_syscall_map *newSyscalls) {
         new->map[i] &= ~(newSyscalls->map[i]) ;
     }
 
-    atomic_long_xchg(&syscalls, &maps[idx]) ;
+    atomic_long_xchg(&syscalls, (long) &maps[idx]) ;
     synchronize_rcu() ;
     mutex_unlock(&syscalls_mutex) ;
 }
@@ -56,7 +56,7 @@ void dump_syscalls(throttleA_syscall_map *map) {
 
     rcu_read_lock() ;
 
-    src = atomic_long_read(&syscalls) ; 
+    src = (throttleA_syscall_map *) atomic_long_read(&syscalls) ;
     memcpy(map, src, sizeof(throttleA_syscall_map)) ;
 
     rcu_read_unlock() ;
@@ -66,7 +66,7 @@ void dump_syscalls(throttleA_syscall_map *map) {
 void init_syscall_monitor(void) {
     int i ;
 
-    atomic_long_set(&syscalls, maps) ;
+    atomic_long_set(&syscalls, (long) maps) ;
     mutex_init(&syscalls_mutex) ;
 
     for (i = 0; i < DATA_PER_LIMIT(throttleA_syscall_map_type); i++) {

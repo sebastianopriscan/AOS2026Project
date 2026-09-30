@@ -16,8 +16,9 @@
 #include "include/names/names.h"
 #include "include/api/api.h"
 #include "include/hash_table/hash_table.h"
+#include "include/hash_table/tree.h"
 
-#define CODE_MASK 0xe0000000U
+#define CODE_MASK 0xf0000000U
 #define CHECK_PATH 0x40000000
 
 static struct kmem_cache *policies_cache ;
@@ -110,10 +111,12 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
             return retval ;
         case DUMP_SYSCALLS :
             retval = throttleA_syscalls_dump(argp_copied) ;
+            if (retval == 0 && copy_to_user((void *) argp, argp_copied, size) != 0) retval = -EFAULT ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
         case DUMP_STATS :
             retval = throttleA_stats_dump(argp_copied) ;
+            if (retval == 0 && copy_to_user((void *) argp, argp_copied, size) != 0) retval = -EFAULT ;
             kmem_cache_free(policies_cache, argp_copied) ;
             return retval ;
         default :
@@ -149,7 +152,7 @@ static int dump_release(struct inode *inode, struct file *file) {
     }
 }
 
-static ssize_t dump_read(struct file *file, char *data, int bufLen, loff_t *offset) {
+static ssize_t dump_read(struct file *file, char __user *data, size_t bufLen, loff_t *offset) {
     unsigned int minor = MINOR(file->f_inode->i_rdev) ;
     if (minor == 0) { 
         return ht_file_handle_read(data, bufLen) ;
@@ -185,11 +188,14 @@ static struct file_operations dump_fops = {
 
 int setup_api(void) {
 
-    policies_cache = kmem_cache_create(
+    // The whole object is copied to/from user space, so whitelist all of it for hardened usercopy
+    policies_cache = kmem_cache_create_usercopy(
         MODNAME"_policies",
         3 * PAGE_SIZE,
         3 * PAGE_SIZE,
         SLAB_POISON,
+        0,
+        3 * PAGE_SIZE,
         setup_area
     );
 

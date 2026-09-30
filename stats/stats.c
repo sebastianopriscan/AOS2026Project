@@ -9,6 +9,7 @@
 #include <linux/ptrace.h>       
 #include <linux/syscalls.h>
 #include <linux/version.h>
+#include <linux/mutex.h>
 
 #include "include/throttler_status/throttler_status.h"
 #include "include/stats/stats.h"
@@ -40,14 +41,14 @@ static struct stats_register stats[2] = {
 atomic_long_t stat_ptr ;
 unsigned long current_index = 0 ;
 
-spinlock_t max_lock ;
+static struct mutex max_lock ;
 
 void init_stats(void) {
-    spin_lock_init(&max_lock) ;
+    mutex_init(&max_lock) ;
     spin_lock_init(&stats[0].reg_lock) ;
     spin_lock_init(&stats[1].reg_lock) ;
 
-    atomic_long_set(&stat_ptr, stats) ;
+    atomic_long_set(&stat_ptr, (long) stats) ;
     atomic_long_set(&stats[0].tolerance, 0) ;
     atomic_long_set(&stats[1].tolerance, 0) ;
 
@@ -56,7 +57,7 @@ void init_stats(void) {
 
 void reset_max_value(unsigned long max) {
     struct stats_register *oldStats, *newStats;
-    spin_lock(&max_lock) ;
+    mutex_lock(&max_lock) ;
 
     oldStats = &stats[current_index] ;
     current_index = (current_index +1) %2 ;
@@ -64,7 +65,7 @@ void reset_max_value(unsigned long max) {
 
     newStats->MAX = max ;
 
-    atomic_long_xchg(&stat_ptr, newStats) ;
+    atomic_long_xchg(&stat_ptr, (long) newStats) ;
 
     synchronize_rcu() ;
 
@@ -82,7 +83,7 @@ void reset_max_value(unsigned long max) {
 
     spin_unlock(&oldStats->reg_lock) ;
 
-    spin_unlock(&max_lock) ;
+    mutex_unlock(&max_lock) ;
 }
 
 void register_delay(unsigned long delay, uid_t uid, char *progName) {
@@ -100,7 +101,7 @@ void register_delay(unsigned long delay, uid_t uid, char *progName) {
     } 
 
     spin_unlock(&reg->reg_lock) ;
-    rcu_read_lock() ;
+    rcu_read_unlock() ;
     return ;
 }
 

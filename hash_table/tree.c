@@ -31,7 +31,9 @@ struct pt_file_handle {
 
 static struct pt_file_handle handle ;
 
-static rwlock_t PT_LOCK ;
+static struct rw_semaphore PT_LOCK ;
+
+path_tree_entry ROOT ;
 
 static inline void lock_path_tree_entry(path_tree_entry *entry) {
     mutex_lock(&entry->entry_mutex) ;
@@ -50,8 +52,8 @@ static inline void unlock_all_entries(path_tree_entry *entry) {
     } while (1) ;
 }
 
-static inline bool check_entry_path(struct qstr *name, char *pathComponent) {
-    int hash = full_name_hash(FULL_RANDOM, pathComponent, slashlen(pathComponent)) ;
+static inline bool check_entry_path(const struct qstr *name, const char *pathComponent) {
+    u32 hash = full_name_hash((void *)(FULL_RANDOM), pathComponent, slashlen(pathComponent)) ;
     return hash == name->hash && slashcmp(name->name, pathComponent) == 0 ;
 }
 
@@ -62,7 +64,7 @@ static inline void INIT_PATH_TREE_ENTRY(path_tree_entry *entry) {
     entry->name.len = 1 ; 
     entry->name.name = "/" ; 
     entry->entry_status = PATH_TREE_ENTRY_ACTIVE ; 
-    init_rwsem(&entry->entry_mutex) ;
+    mutex_init(&entry->entry_mutex) ;
 }
 
 static inline void CLEANUP_PATH_TREE_ENTRY(path_tree_entry *root) {
@@ -83,8 +85,6 @@ static inline void CLEANUP_PATH_TREE_ENTRY(path_tree_entry *root) {
     } while (entry != root) ;
 }
 
-path_tree_entry ROOT ;
-
 static inline void remove_path_tree_entry_by_entry(path_tree_entry *entry) {
     entry->entry_status = PATH_TREE_ENTRY_INACTIVE ;
     path_tree_entry *base = entry ;
@@ -104,7 +104,7 @@ static inline void remove_path_tree_entry_by_entry(path_tree_entry *entry) {
 
     do {
         if (base == &ROOT) break ;
-        write_unlock_path_tree_entry(base) ;
+        unlock_path_tree_entry(base) ;
         base = base->parent ;
     } while (1) ;
 
@@ -123,17 +123,17 @@ static inline void remove_path_tree_entry_by_entry(path_tree_entry *entry) {
     return ;
 }
 
-static inline void remove_path_tree_entry(char *fullPath) {
+int remove_path_tree_entry(char *fullPath) {
     char *pathPtr = fullPath +1;
     path_tree_entry *base = &ROOT, *toRemove ;
 
-    if (read_trylock(&PT_LOCK)) return -EBUSY ;
+    if (!down_read_trylock(&PT_LOCK)) return -EBUSY ;
     lock_path_tree_entry(&ROOT) ;
 
     do {
         path_tree_entry *entry ;
         list_for_each_entry_rcu(entry, &base->children, siblings) {
-            if (check_entry_path(&entry->name.name, pathPtr)) {
+            if (check_entry_path(&entry->name, pathPtr)) {
                 lock_path_tree_entry(entry) ;
                 base = entry ;
                 goto incr_step;
@@ -155,21 +155,21 @@ incr_step:
 
 err_step:
         unlock_all_entries(base) ;
-        read_unlock(&PT_LOCK) ;
-        return ;
+        up_read(&PT_LOCK) ;
+        return -ENOENT ;
     } while (1) ;
 
 
     remove_path_tree_entry_by_entry(toRemove) ;
-    read_unlock(&PT_LOCK) ;
-    return ;
+    up_read(&PT_LOCK) ;
+    return 0 ;
 }
 
 int insert_path_tree_entry(char *fullPath) {
     char *pathPtr = fullPath +1;
     path_tree_entry *base = &ROOT ;
 
-    if (read_trylock(&PT_LOCK)) return -EBUSY ;
+    if (!down_read_trylock(&PT_LOCK)) return -EBUSY ;
     lock_path_tree_entry(&ROOT) ;
 
     do {
@@ -179,7 +179,7 @@ int insert_path_tree_entry(char *fullPath) {
         int nameLen ;
 
         list_for_each_entry_rcu(entry, &base->children, siblings) {
-            if (check_entry_path(&entry->name.name, pathPtr)) {
+            if (check_entry_path(&entry->name, pathPtr)) {
                 if (base->parent != base) {
                     unlock_path_tree_entry(base->parent) ;
                 }
@@ -206,7 +206,7 @@ int insert_path_tree_entry(char *fullPath) {
         newEntry->name.len = nameLen ;
         newEntry->name.hash = full_name_hash((void *)(FULL_RANDOM), name, nameLen) ;
 
-        init_rwsem(&newEntry->entry_mutex) ;
+        mutex_init(&newEntry->entry_mutex) ;
         lock_path_tree_entry(newEntry) ;
 
         newEntry->parent = base ;
@@ -222,11 +222,11 @@ incr_step:
         if (*pathPtr == '\0') {
             if (newEntry) {
                 newEntry->entry_status = PATH_TREE_ENTRY_ACTIVE ;
-                read_unlock(&PT_LOCK) ;
+                up_read(&PT_LOCK) ;
                 return 0 ;
             }
             base->entry_status = PATH_TREE_ENTRY_ACTIVE ;
-            read_unlock(&PT_LOCK) ;
+            up_read(&PT_LOCK) ;
             return 0 ;
         }
         pathPtr++ ;
@@ -238,19 +238,19 @@ free_allocations:
     if (base->parent != base) unlock_path_tree_entry(base->parent) ;
     remove_path_tree_entry(fullPath) ;
 
-    read_unlock(&PT_LOCK) ;
+    up_read(&PT_LOCK) ;
     return -ENOMEM ;
 }
 
 bool path_tree_has(const char *fullPath) {
-    char *pathPtr = fullPath +1;
-    path_tree_entry *base = &ROOT, *toRemove;
+    const char *pathPtr = fullPath +1;
+    path_tree_entry *base = &ROOT ;
 
     rcu_read_lock() ;
     do {
         path_tree_entry *entry ;
         list_for_each_entry_rcu(entry, &base->children, siblings) {
-            if (check_entry_path(&entry->name.name, pathPtr)) {
+            if (check_entry_path(&entry->name, pathPtr)) {
                 base = entry ;
                 pathPtr += slashlen(pathPtr) ;
                 if (*pathPtr == '\0' && base->entry_status == PATH_TREE_ENTRY_ACTIVE) {
@@ -268,15 +268,15 @@ bool path_tree_has(const char *fullPath) {
 }
 
 int path_tree_lock(void) {
-    return write_trylock(&PT_LOCK) ;
+    return down_write_trylock(&PT_LOCK) ? 0 : 1 ;
 }
 
 void path_tree_unlock(void) {
-    write_unlock(&PT_LOCK) ;
+    up_write(&PT_LOCK) ;
 }
 
 void init_path_tree(void) {
-    rwlock_init(&PT_LOCK) ;
+    init_rwsem(&PT_LOCK) ;
     INIT_PATH_TREE_ENTRY(&ROOT) ;
     return ;
 }
@@ -299,11 +299,11 @@ static inline int keep_reading(char __user *buf, ssize_t len) {
             handle.state = 0 ;
             if (!list_empty(&handle.curr->children) && !handle.children_visited) {
                 handle.depth++ ;
-                handle.curr = container_of(&handle.curr->children.next, path_tree_entry, siblings) ;
+                handle.curr = container_of(handle.curr->children.next, path_tree_entry, siblings) ;
                 break ;
             } else {
                 if (!list_is_last(&handle.curr->siblings, &handle.curr->parent->children)) {
-                    handle.curr = container_of(&handle.curr->siblings.next, path_tree_entry, siblings) ;
+                    handle.curr = container_of(handle.curr->siblings.next, path_tree_entry, siblings) ;
                     handle.children_visited = false ;
                     break ;
                 } else {

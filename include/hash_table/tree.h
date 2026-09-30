@@ -56,8 +56,9 @@ int insert_path_tree_entry(char *fullPath) ;
 /**
  * Unbind the path_with_table pt from the path_tree, removing entries if not busy (either with children or with associated path_with_table entries)
  * @param fullPath The path being removed
+ * @returns 0 if the path was removed, -ENOENT if it is not monitored, -EBUSY if the tree is being dumped
  */
-void remove_path_tree_entry(char *fullPath) ;
+int remove_path_tree_entry(char *fullPath) ;
 
 /**
  * Check if the fullPath is under management of the path_tree
@@ -65,7 +66,7 @@ void remove_path_tree_entry(char *fullPath) ;
  * @param fullPath The path being searched
  * @returns A boolean indicating the presence of the program in the path tree
  */
-bool path_tree_has(char *fullPath) ;
+bool path_tree_has(const char *fullPath) ;
 
 /**
  * Trylock the whole path tree for

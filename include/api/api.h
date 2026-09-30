@@ -3,7 +3,6 @@
 
 #include <linux/limits.h>
 
-#include "include/syscalls/syscalls.h"
 #include "include/stats/stats.h"
 
 #define SYSCALL_LIMIT 500

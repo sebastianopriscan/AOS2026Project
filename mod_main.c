@@ -20,15 +20,23 @@ MODULE_DESCRIPTION("This module implements a throttler for system calls invocati
 #include "include/throttler_status/throttler_status.h"
 #include "include/preempt_kprobe/preempt_kprobe.h"
 #include "include/hash_table/hash_table.h"
+#include "include/hash_table/tree.h"
+#include "include/syscalls/syscalls.h"
+#include "include/stats/stats.h"
 
 static int throttleA_init(void) {
 	init_hash_table() ;
+	init_path_tree() ;
+	init_syscall_monitor() ;
+	init_stats() ;
 	setup_throttler_status();
 	if (setup_preempt_kprobe() != 0) {
+		cleanup_path_tree() ;
 		cleanup_hash_table() ;
 		return -1 ;
 	}
 	if (setup_api() != 0) {
+		cleanup_path_tree() ;
 		cleanup_hash_table() ;
 		return -1 ;
 	}
@@ -38,6 +46,7 @@ static int throttleA_init(void) {
 static void  throttleA_exit(void) {
 	cleanup_api();
 	cleanup_throttler_status() ;
+	cleanup_path_tree() ;
 	cleanup_hash_table() ;
 }
 

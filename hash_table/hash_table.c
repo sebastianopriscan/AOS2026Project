@@ -44,7 +44,7 @@ struct ht_file_handle {
 static struct ht_file_handle handle ;
 
 
-static rwlock_t HT_RWLOCK ;
+static struct rw_semaphore HT_RWLOCK ;
 
 static inline unsigned long evaluate_uid_hash(uid_t uid) {
     bool flipped = uid % 2 == 0 ;
@@ -60,7 +60,7 @@ int hash_table_insert_uid(uid_t uid) {
     struct rw_semaphore *sem ;
     uid_record *record ;
 
-    if (read_trylock(&HT_RWLOCK)) return -EBUSY ;
+    if (!down_read_trylock(&HT_RWLOCK)) return -EBUSY ;
 
     ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
     list = &ht_record->overflow_list;
@@ -69,7 +69,7 @@ int hash_table_insert_uid(uid_t uid) {
     list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
         if (record->uid == uid) {
             up_write(sem) ;
-            read_unlock(&HT_RWLOCK) ;
+            up_read(&HT_RWLOCK) ;
             return -EEXIST ;
         }
     }
@@ -77,7 +77,7 @@ int hash_table_insert_uid(uid_t uid) {
     record = kmalloc(sizeof(uid_record), GFP_KERNEL) ;
     if (record == NULL) {
         up_write(sem) ;
-        read_unlock(&HT_RWLOCK) ;
+        up_read(&HT_RWLOCK) ;
         return -ENOMEM ;
     }
 
@@ -86,7 +86,7 @@ int hash_table_insert_uid(uid_t uid) {
 
     up_write(sem) ;
 
-    read_unlock(&HT_RWLOCK) ;
+    up_read(&HT_RWLOCK) ;
     return 0 ;
 }
 
@@ -96,7 +96,7 @@ int hash_table_remove_uid(uid_t uid) {
     struct rw_semaphore *sem ;
     uid_record *record, *found = NULL;
 
-    if (read_trylock(&HT_RWLOCK)) return -EBUSY ;
+    if (!down_read_trylock(&HT_RWLOCK)) return -EBUSY ;
 
     ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
     list = &ht_record->overflow_list;
@@ -113,25 +113,25 @@ int hash_table_remove_uid(uid_t uid) {
         synchronize_rcu() ;
         kfree(found) ;
         up_write(sem) ;
-        read_unlock(&HT_RWLOCK) ;
+        up_read(&HT_RWLOCK) ;
         return 0 ;
     }
 
     up_write(sem) ;
-    read_unlock(&HT_RWLOCK) ;
+    up_read(&HT_RWLOCK) ;
     return -ENOENT ;
 }
 
 int hash_table_lock(void) {
-    return write_trylock(&HT_RWLOCK) ;
+    return down_write_trylock(&HT_RWLOCK) ? 0 : 1 ;
 }
 
 void hash_table_unlock(void) {
-    write_unlock(&HT_RWLOCK) ;
+    up_write(&HT_RWLOCK) ;
 }
 
 void init_hash_table(void) {
-    rwlock_init(&HT_RWLOCK) ;
+    init_rwsem(&HT_RWLOCK) ;
     for (int i = 0; i < MODULUS; i++) {
         INIT_LIST_HEAD(&UID_TABLE.records[i].overflow_list) ;
         init_rwsem(&UID_TABLE.records[i].sem) ;
@@ -157,8 +157,6 @@ void cleanup_hash_table(void) {
     struct list_head *pos, *tmp, uid_free_list ;
     INIT_LIST_HEAD(&uid_free_list) ;
 
-    clean_ht_sys_mirror() ;
-
     for (int i = 0; i < MODULUS; i++) {
         clean_uid_ht_overflow_list(&UID_TABLE.records[i], &uid_free_list) ;
         //clean_ht_overflow_list(&PROGRAM_TABLE.records[i], &free_list) ;
@@ -176,27 +174,27 @@ void cleanup_hash_table(void) {
     } while (!list_is_head(pos, &uid_free_list)) ;
 }
 
-static bool hash_table_has(uid_t uid) {
+bool hash_table_has(uid_t uid) {
     int idx ;
-    struct list_head *list, *pos ;
+    struct list_head *list ;
     uid_record *record ;
+    bool found = false ;
 
     idx = evaluate_uid_hash(uid) ;
     list = &(&UID_TABLE)->records[idx].overflow_list ;
 
     rcu_read_lock() ;
 
-    if (uid >= 0) {
-        list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
-            if (uid == record->uid) {
-                true ;
-            }
+    list_for_each_entry_rcu(record, list, overflow_list) {
+        if (uid == record->uid) {
+            found = true ;
+            break ;
         }
     }
 
     rcu_read_unlock() ;
 
-    return NULL ;
+    return found ;
 }
 
 
@@ -222,7 +220,7 @@ static inline int keep_reading(char __user *buf, ssize_t len) {
                     return 0 ;
                 }
 
-                handle.head = &UID_TABLE.records[handle.ht_idx] ;
+                handle.head = &UID_TABLE.records[handle.ht_idx].overflow_list ;
                 if (list_empty(handle.head)) continue ;
                 else {
                     handle.curr = container_of(handle.head->next, uid_record, overflow_list) ;
@@ -257,11 +255,12 @@ void reset_ht_file_handle(void) {
     do {
         handle.ht_idx++ ;
         if (handle.ht_idx >= MODULUS) {
-            handle.head = handle.curr = NULL ;
+            handle.head = NULL ;
+            handle.curr = NULL ;
             break ;
         } ;
 
-        handle.head = &UID_TABLE.records[handle.ht_idx] ;
+        handle.head = &UID_TABLE.records[handle.ht_idx].overflow_list ;
         if (list_empty(handle.head)) continue ;
         else {
             handle.curr = container_of(handle.head->next, uid_record, overflow_list) ;

@@ -20,10 +20,12 @@
 #include "include/syscalls/syscalls.h"
 
 ssize_t throttleA_uid_add(unsigned long uid) {
+    if (uid >= (uid_t) -1) return -EINVAL ;
     return hash_table_insert_uid(uid) ;
 }
 
 ssize_t throttleA_uid_rm(unsigned long uid) {
+    if (uid >= (uid_t) -1) return -EINVAL ;
     return hash_table_remove_uid(uid) ;
 }
 
@@ -32,8 +34,7 @@ ssize_t throttleA_path_add(throttleA_path *path) {
 }
 
 ssize_t throttleA_path_rm(throttleA_path *path) {
-    remove_path_tree_entry(path->pathName) ;
-    return 0 ;
+    return remove_path_tree_entry(path->pathName) ;
 }
 
 ssize_t throttleA_syscalls_add(throttleA_syscall_map *map) {
