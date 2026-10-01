@@ -23,14 +23,14 @@ void setup_throttler_status(void) {
 }
 
 void cleanup_throttler_status(void) {
-
+    set_throttler_status_off() ;
 }
 
 int set_throttler_status_on(void) {
     int retval = 0;
     down_write(&status_sem) ;
     if (STATUS == OFF) {
-        int retval = enable_monitor() ;
+        retval = enable_monitor() ;
         if (retval >= 0) {
             STATUS = ON ;
             setup_timers() ;

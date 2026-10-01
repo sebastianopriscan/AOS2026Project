@@ -57,6 +57,7 @@ void init_stats(void) {
 
 void reset_max_value(unsigned long max) {
     struct stats_register *oldStats, *newStats;
+    unsigned long flags ;
     mutex_lock(&max_lock) ;
 
     oldStats = &stats[current_index] ;
@@ -71,7 +72,7 @@ void reset_max_value(unsigned long max) {
 
     atomic_long_set(&oldStats->tolerance, 0) ;
 
-    spin_lock(&oldStats->reg_lock) ;
+    spin_lock_irqsave(&oldStats->reg_lock, flags) ;
 
     oldStats->peak_blocked = 0UL ;
     oldStats->sum_blocked = 0UL ;
@@ -81,26 +82,28 @@ void reset_max_value(unsigned long max) {
     oldStats->peak_uid = 0 ;
     oldStats->peak_name[0] = '\0' ;
 
-    spin_unlock(&oldStats->reg_lock) ;
+    spin_unlock_irqrestore(&oldStats->reg_lock, flags) ;
 
     mutex_unlock(&max_lock) ;
 }
 
 void register_delay(unsigned long delay, uid_t uid, char *progName) {
     struct stats_register *reg ;
+    unsigned long flags ;
 
     rcu_read_lock() ;
     reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
 
-    spin_lock(&reg->reg_lock) ;
+    spin_lock_irqsave(&reg->reg_lock, flags) ;
 
     if (delay > reg->peak_delay) {
         reg->peak_delay = delay ;
         reg->peak_uid = (unsigned long) uid ;
-        strncpy(reg->peak_name, progName, 2*PAGE_SIZE) ;
+        if (progName) strncpy(reg->peak_name, progName, 2*PAGE_SIZE) ;
+        else reg->peak_name[0] = '\0' ;
     } 
 
-    spin_unlock(&reg->reg_lock) ;
+    spin_unlock_irqrestore(&reg->reg_lock, flags) ;
     rcu_read_unlock() ;
     return ;
 }

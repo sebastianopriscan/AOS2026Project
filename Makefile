@@ -19,9 +19,9 @@ PATHS_NODE := /dev/throttleA-paths
 
 start:
 	sudo insmod throttleA.ko 
-	sudo mknod $(API_NODE) c $$(sudo cat $(PARAMS_DIR)/ioctl_major) 0
-	sudo mknod $(UIDS_NODE) c $$(sudo cat $(PARAMS_DIR)/dump_major) 0
-	sudo mknod $(PATHS_NODE) c $$(sudo cat $(PARAMS_DIR)/dump_major) 1
+	sudo mknod -m 600 $(API_NODE) c $$(sudo cat $(PARAMS_DIR)/ioctl_major) 0
+	sudo mknod -m 600 $(UIDS_NODE) c $$(sudo cat $(PARAMS_DIR)/dump_major) 0
+	sudo mknod -m 600 $(PATHS_NODE) c $$(sudo cat $(PARAMS_DIR)/dump_major) 1
 
 stop:
 	-sudo rm -f $(API_NODE) $(UIDS_NODE) $(PATHS_NODE)

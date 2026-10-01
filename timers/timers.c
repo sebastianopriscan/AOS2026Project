@@ -20,9 +20,13 @@ static ktime_t oneSecond ;
 
 DECLARE_WAIT_QUEUE_HEAD(throttler_waitqueue) ;
 
+static unsigned long window ;
+
 static enum hrtimer_restart throttler_poller(struct hrtimer *timer) {
     reset_tolerance() ;
+    WRITE_ONCE(window, window +1) ;
     wake_up(&throttler_waitqueue) ;
+    hrtimer_forward_now(timer, oneSecond) ;
     return HRTIMER_RESTART ;
 }
 
@@ -39,6 +43,7 @@ void cleanup_timers(void) {
 }
 
 void throttle(void) {
-    wait_event(throttler_waitqueue, 1) ;
+    unsigned long startWindow = READ_ONCE(window) ;
+    wait_event_killable(throttler_waitqueue, READ_ONCE(window) != startWindow) ;
     return ;
 }

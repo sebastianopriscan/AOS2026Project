@@ -66,7 +66,7 @@ int hash_table_insert_uid(uid_t uid) {
     list = &ht_record->overflow_list;
     sem = &ht_record->sem ;
     down_write(sem) ;
-    list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
+    list_for_each_entry_rcu(record, list, overflow_list) {
         if (record->uid == uid) {
             up_write(sem) ;
             up_read(&HT_RWLOCK) ;
@@ -102,7 +102,7 @@ int hash_table_remove_uid(uid_t uid) {
     list = &ht_record->overflow_list;
     sem = &ht_record->sem ;
     down_write(sem) ;
-    list_for_each_entry_rcu(record, list, overflow_list, uid_record) {
+    list_for_each_entry_rcu(record, list, overflow_list) {
         if (record->uid == uid) {
             found = record ;
         }
@@ -143,13 +143,10 @@ void init_hash_table(void) {
 static inline void clean_uid_ht_overflow_list(struct hash_table_record *record, struct list_head *freeList) {
     struct list_head *pos, *tmp ;
     down_write(&record->sem) ;
-    pos = rcu_dereference(record->overflow_list.next) ;
-    do {
-        tmp = pos ;
-        pos = rcu_dereference(pos->next) ;
-        list_del_rcu(tmp) ;
-        list_add(tmp, freeList) ;
-    } while (!list_is_head(pos, &record->overflow_list)) ;
+    list_for_each_safe(pos, tmp, &record->overflow_list) {
+        list_del_rcu(pos) ;
+        list_add(pos, freeList) ;
+    }
     up_write(&record->sem) ;
 }
 
@@ -164,14 +161,10 @@ void cleanup_hash_table(void) {
 
     synchronize_rcu() ;
 
-    pos = uid_free_list.next ;
-    do {
-        tmp = pos ;
-        pos = pos->next ;
-
-        list_del(tmp) ;
-        kfree(container_of(tmp, uid_record, overflow_list)) ;
-    } while (!list_is_head(pos, &uid_free_list)) ;
+    list_for_each_safe(pos, tmp, &uid_free_list) {
+        list_del(pos) ;
+        kfree(container_of(pos, uid_record, overflow_list)) ;
+    }
 }
 
 bool hash_table_has(uid_t uid) {
@@ -199,20 +192,18 @@ bool hash_table_has(uid_t uid) {
 
 
 static inline int keep_reading(char __user *buf, ssize_t len) {
+    char parsed[32] ;
+    int remaining, parsedlen, toWrite, missing ;
 
     if (handle.curr == NULL) return 0 ;
 
-    char parsed[32] ;
-    int remaining, parsedlen ;
-
     sprintf(parsed, "%d\n", handle.curr->uid) ;
     parsedlen = strlen(parsed) ;
-
     remaining = parsedlen - handle.state ;
 
     if (!remaining) {
         handle.state = 0 ;
-        if (list_is_head(&handle.curr->overflow_list, handle.head)) {
+        if (list_is_last(&handle.curr->overflow_list, handle.head)) {
             do {
                 handle.ht_idx++ ;
                 if (handle.ht_idx >= MODULUS) {
@@ -227,12 +218,18 @@ static inline int keep_reading(char __user *buf, ssize_t len) {
                     break ;
                 }
             } while (1) ;
-        }
+        } else handle.curr = container_of(handle.curr->overflow_list.next, uid_record, overflow_list) ;
+
+        sprintf(parsed, "%d\n", handle.curr->uid) ;
+        parsedlen = strlen(parsed) ;
+        remaining = parsedlen - handle.state ;
     }
 
-    int toWrite = min(remaining, len) ;
-    copy_to_user(buf, parsed + handle.state, toWrite) ;
+    toWrite = umin(remaining, len) ;
+    missing = copy_to_user(buf, parsed + handle.state, toWrite) ;
+    if (toWrite && missing == toWrite) return -EFAULT ;
 
+    toWrite -= missing ;
     handle.state += toWrite ;
     return toWrite ;
 }
@@ -244,8 +241,9 @@ ssize_t ht_file_handle_read(char __user *buf, ssize_t len) {
 
     do {
         read = keep_reading(buf + cum, len - cum) ;
+        if (read < 0) return cum ? cum : read ;
         cum += read ;
-    } while (cum < len || read == 0) ;
+    } while (cum < len && read > 0) ;
 
     return cum ;
 }

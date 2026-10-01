@@ -25,20 +25,23 @@ MODULE_DESCRIPTION("This module implements a throttler for system calls invocati
 #include "include/stats/stats.h"
 
 static int throttleA_init(void) {
+	int ret ;
 	init_hash_table() ;
 	init_path_tree() ;
 	init_syscall_monitor() ;
 	init_stats() ;
 	setup_throttler_status();
-	if (setup_preempt_kprobe() != 0) {
+	ret = setup_preempt_kprobe() ;
+	if (ret != 0) {
 		cleanup_path_tree() ;
 		cleanup_hash_table() ;
-		return -1 ;
+		return ret ;
 	}
-	if (setup_api() != 0) {
+	ret = setup_api() ;
+	if (ret != 0) {
 		cleanup_path_tree() ;
 		cleanup_hash_table() ;
-		return -1 ;
+		return ret ;
 	}
 	return 0 ;
 }
