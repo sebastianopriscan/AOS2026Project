@@ -23,10 +23,6 @@
 
 static struct kmem_cache *policies_cache ;
 
-static void setup_area(void *buffer) {
-
-}
-
 static int dev_open(struct inode *inode, struct file *file) {
     return 0 ;
 }
@@ -42,7 +38,9 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     ssize_t retval ;
     void *argp_copied ;
 
-    printk("%s code is %#08x, code & CODE_MASK is %#08x", MODNAME, code, code & CODE_MASK) ;
+    if (!capable(CAP_SYS_ADMIN)) return -EPERM ; // BUG_REPORT R1
+
+    pr_debug("%s code is %#08x, code & CODE_MASK is %#08x\n", MODNAME, code, code & CODE_MASK) ; // BUG_REPORT A7
 
     // Handlers for when argp is not needed
     if ((code & CODE_MASK) == THROTTLER_SET_ENABLE) {
@@ -63,18 +61,25 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
         size != sizeof(throttleA_path)
     ) { 
         printk("%s: Data pointed by argp was not of correct size for path operations", MODNAME) ; 
-        return 1 ; 
+        return -EINVAL ;
     } else if (
         ((code & CODE_MASK) == ADD_SYSCALLS || (code & CODE_MASK) == RM_SYSCALLS || (code & CODE_MASK) == DUMP_SYSCALLS) &&
         size != sizeof(throttleA_syscall_map)
     ) {
         printk("%s: Data pointed by argp was not of correct size for syscall operations", MODNAME) ; 
-        return 1 ; 
+        return -EINVAL ;
     } else if (
         ((code & CODE_MASK) == DUMP_STATS) && size != sizeof(struct stats_register)
     ) {
         printk("%s: Data pointed by argp was not of correct size for stats dump operation", MODNAME) ; 
-        return 1 ; 
+        return -EINVAL ;
+    } else if (
+        (code & CODE_MASK) != ADD_PATH && (code & CODE_MASK) != RM_PATH &&
+        (code & CODE_MASK) != ADD_SYSCALLS && (code & CODE_MASK) != RM_SYSCALLS &&
+        (code & CODE_MASK) != DUMP_SYSCALLS && (code & CODE_MASK) != DUMP_STATS
+    ) {
+        printk("%s: Invoked non-existant operation", MODNAME) ;
+        return -EOPNOTSUPP ;
     }
 
     argp_copied = kmem_cache_alloc(policies_cache, GFP_KERNEL) ; 
@@ -87,10 +92,10 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     if (copied != 0) {
         printk("%s: Error, unable to copy all memory from user, copied %d of %d", MODNAME, copied, size) ;
         kmem_cache_free(policies_cache, argp_copied) ;
-        return -EACCES ;
+        return -EFAULT ;
     }
 
-    printk("%s: Copied data from user buffer", MODNAME) ;
+    pr_debug("%s: Copied data from user buffer\n", MODNAME) ;
 
     switch (code & CODE_MASK) {
         case ADD_PATH :
@@ -128,6 +133,7 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
 
 static int dump_open(struct inode *inode, struct file *file) {
     unsigned int minor = MINOR(inode->i_rdev) ;
+    if (!capable(CAP_SYS_ADMIN)) return -EPERM ; // BUG_REPORT R1
     if (minor == 0) {
         if (hash_table_lock()) return -EBUSY ;
         reset_ht_file_handle() ;
@@ -138,7 +144,7 @@ static int dump_open(struct inode *inode, struct file *file) {
         reset_pt_file_handle() ;
         return 0 ;
     }
-    else return -ENOTSUPP ;
+    else return -ENXIO ; // BUG_REPORT A4
 }
 
 static int dump_release(struct inode *inode, struct file *file) {
@@ -187,6 +193,7 @@ static struct file_operations dump_fops = {
 } ;
 
 int setup_api(void) {
+    int ret ;
 
     // The whole object is copied to/from user space, so whitelist all of it for hardened usercopy
     policies_cache = kmem_cache_create_usercopy(
@@ -196,16 +203,28 @@ int setup_api(void) {
         SLAB_POISON,
         0,
         3 * PAGE_SIZE,
-        setup_area
+        NULL
     );
 
     if (policies_cache == NULL) {
         printk("%s: Unable to allocate kmem path cache", MODNAME) ;
-        return 1 ;
+        return -ENOMEM ;
     }
 
-    ioctl_major = __register_chrdev(0,0, 256, API_CHARDEV_IOCTL_NAME, &ioctl_fops) ;
-    dump_major = __register_chrdev(0,0, 256, API_CHARDEV_DUMP_NAME, &dump_fops) ;
+    ret = __register_chrdev(0,0, 256, API_CHARDEV_IOCTL_NAME, &ioctl_fops) ;
+    if (ret < 0) {
+        kmem_cache_destroy(policies_cache) ;
+        return ret ;
+    }
+    ioctl_major = ret ;
+
+    ret = __register_chrdev(0,0, 256, API_CHARDEV_DUMP_NAME, &dump_fops) ;
+    if (ret < 0) {
+        unregister_chrdev(ioctl_major, API_CHARDEV_IOCTL_NAME) ;
+        kmem_cache_destroy(policies_cache) ;
+        return ret ;
+    }
+    dump_major = ret ;
 
     return 0 ;
 }

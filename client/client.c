@@ -71,22 +71,17 @@ static inline int parseSyscalls(const char *list, throttleA_syscall_map *map) {
 }
 
 /**
- * Fills path with the absolute, symlink-free version of value.
- * If the file can't be resolved (e.g. it was deleted), an already
- * absolute path is accepted verbatim.
+ * Fills path with value as is, the module resolves and validates it
  */
 static inline int parsePath(const char *value, throttleA_path *path) {
-    memset(path, 0, sizeof(throttleA_path)) ;
-
-    if (realpath(value, path->pathName) != NULL) return 0 ;
-
-    if (value[0] == '/' && strlen(value) < PATH_MAX) {
-        strcpy(path->pathName, value) ;
-        return 0 ;
+    if (strlen(value) >= PATH_MAX) {
+        fprintf(stderr, "Error: path too long (allowed length 0-%d)\n", PATH_MAX -1) ;
+        return -1 ;
     }
 
-    perror("Error resolving path") ;
-    return -1 ;
+    memset(path, 0, sizeof(throttleA_path)) ;
+    strcpy(path->pathName, value) ;
+    return 0 ;
 }
 
 /**

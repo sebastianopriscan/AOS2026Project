@@ -29,12 +29,25 @@ ssize_t throttleA_uid_rm(unsigned long uid) {
     return hash_table_remove_uid(uid) ;
 }
 
+/**
+ * Runs op on the path the oracle makes out of the one received from user space
+ */
+static ssize_t path_op(throttleA_path *path, int (*op)(char *)) {
+    ssize_t retval ;
+    char *resolved = pathname_oracle(path->pathName) ;
+
+    if (IS_ERR(resolved)) return PTR_ERR(resolved) ;
+    retval = op(resolved) ;
+    kfree(resolved) ;
+    return retval ;
+}
+
 ssize_t throttleA_path_add(throttleA_path *path) {
-    return insert_path_tree_entry(path->pathName) ;
+    return path_op(path, insert_path_tree_entry) ;
 }
 
 ssize_t throttleA_path_rm(throttleA_path *path) {
-    return remove_path_tree_entry(path->pathName) ;
+    return path_op(path, remove_path_tree_entry) ;
 }
 
 ssize_t throttleA_syscalls_add(throttleA_syscall_map *map) {
@@ -58,13 +71,14 @@ ssize_t throttleA_stats_dump(struct stats_register *map) {
 }
 
 ssize_t throttleA_reset_max(unsigned long max) {
+    if (max == 0) return -EINVAL ;
+    if (max > LONG_MAX /2) return -ERANGE ;
     reset_max_value(max) ;
     return 0 ;
 }
 
 ssize_t set_throttler_on() {
-    set_throttler_status_on() ;
-    return 0 ;
+    return set_throttler_status_on() ;
 }
 
 ssize_t set_throttler_off() {
