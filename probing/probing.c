@@ -10,6 +10,7 @@
 #include <linux/syscalls.h>
 #include <linux/version.h>
 #include <linux/ktime.h>
+#include <linux/wait_bit.h>
 
 #include "include/names/names.h"
 #include "include/probing/probing.h"
@@ -19,8 +20,11 @@
 #include "include/stats/stats.h"
 #include "include/timers/timers.h"
 #include "include/throttler_status/throttler_status.h"
+#include "include/preempt_kprobe/preempt_kprobe.h"
 
-const char syscall_handler_name[] = "do_syscall_64" ;
+const char syscall_handler_name[] = "x64_sys_call" ;
+
+static atomic_t throttled_threads = ATOMIC_INIT(0) ;
 
 /**
  * get_mm_exe_file - acquire a reference to the mm's executable file
@@ -62,45 +66,70 @@ struct file *get_task_exe_file(struct task_struct *task)
 	return exe_file;
 }
 
+static char *get_exe_path(struct file **file, char **buffer, gfp_t flags) {
+    char *pathPtr ;
+
+    *file = get_task_exe_file(current) ;
+    if (*file == NULL) return NULL ;
+
+    *buffer = kmalloc(2*PAGE_SIZE, flags) ;
+    if (*buffer == NULL) {
+        printk(KERN_DEBUG "Memory could not be allocated for thread %d, its path is not resolved\n", current->pid) ;
+        return NULL ;
+    }
+
+    pathPtr = file_path(*file, *buffer, 2*PAGE_SIZE) ;
+    if (IS_ERR(pathPtr)) {
+        printk(KERN_DEBUG "Path name resolution was incomplete for thread %d\n", current->pid) ;
+        return NULL ;
+    }
+
+    return pathPtr ;
+}
+
 static int throttler(struct kprobe *kprobe, struct pt_regs *regs) {
-    char *pathBuffer, *pathPtr = NULL ;
-    struct pt_regs *syscall_regs = ((struct pt_regs *)regs->di) ;
-    const unsigned long syscall_code = syscall_regs->ax ;
-    uid_t thread_uid = current_cred()->uid.val ;
+    char *pathBuffer = NULL, *pathPtr = NULL ;
+    struct file *thread_file = NULL ;
+    const unsigned int syscall_code = (unsigned int) regs->si ;
+    uid_t thread_uid ;
+    unsigned long ticket ;
+    ktime_t start, end ;
 
-    struct file *thread_file = get_task_exe_file(current) ;
-    const char *thread_name = thread_file->f_path.dentry->d_name.name ;
+    if (!is_syscall_monitored(syscall_code)) return 0 ;
 
-    pathBuffer = kmalloc(2*PAGE_SIZE, GFP_KERNEL | GFP_ATOMIC) ;
-    if (IS_ERR_OR_NULL(pathBuffer)) {
-        printk(KERN_DEBUG "Memory could not be allocated for thread %d, decision will be performed only on uid\n", thread_uid) ;
-    } else {
-        pathPtr = file_path(thread_file, pathBuffer, 2*PAGE_SIZE) ;
-        if (IS_ERR(pathPtr)) {
-            printk(KERN_DEBUG "Path name resolution was incomplete for thread %d, decision will be only on UID\n", thread_uid) ;
-            pathPtr = NULL ;
-        }
+    thread_uid = from_kuid(&init_user_ns, current_euid()) ;
+    if (!hash_table_has(thread_uid)) {
+        pathPtr = get_exe_path(&thread_file, &pathBuffer, GFP_ATOMIC) ;
+        if (pathPtr == NULL || !path_tree_has(pathPtr)) goto out ;
     }
 
-    THROTTLER_STATUS status = down_throttler_status(THROTTLER_LOCK_READ) ;
-    if (status == ON) {
-        if (
-            is_syscall_monitored(syscall_code) &&
-            ( hash_table_has(thread_uid) || ( pathPtr != NULL && path_tree_has(pathPtr) ) ) &&
-            should_sleep()
-        ) {
-            ktime_t start, end ;
-            start = ktime_get() ;
-            throttle() ;
-            end = ktime_get() ;
+    ticket = take_ticket() ;
+    if (ticket_served(ticket)) goto out ;
 
-            register_delay(end - start, thread_uid, pathPtr) ;
-        }
+    if (preempt_count() != PREEMPT_DISABLE_OFFSET) {
+        pr_warn_once(MODNAME": Probe context is not preemptible (preempt_count %#x), throttling is skipped\n", preempt_count()) ;
+        goto out ;
     }
-    up_throttler_status(THROTTLER_LOCK_READ) ;
-    
-    if (pathPtr) kfree(pathBuffer) ;
-    fput(thread_file) ;
+
+    atomic_inc(&throttled_threads) ;
+    reset_kprobe_context() ;
+    preempt_enable() ;
+
+    start = ktime_get() ;
+    throttle(ticket) ;
+    end = ktime_get() ;
+
+    if (pathPtr == NULL) pathPtr = get_exe_path(&thread_file, &pathBuffer, GFP_KERNEL) ;
+
+    preempt_disable() ;
+    set_kprobe_context(kprobe) ;
+
+    register_delay(end - start, thread_uid, pathPtr) ;
+    if (atomic_dec_and_test(&throttled_threads)) wake_up_var(&throttled_threads) ;
+
+out:
+    if (pathBuffer) kfree(pathBuffer) ;
+    if (thread_file) fput(thread_file) ;
 
     return 0 ;
 }
@@ -113,6 +142,9 @@ struct kprobe throttler_kprobe = {
 int enable_monitor(void) {
     int ret ;
 
+    throttler_kprobe.addr = NULL ;
+    throttler_kprobe.flags = 0 ;
+
     ret = register_kprobe(&throttler_kprobe) ;
     if (ret < 0) {
         pr_warn(MODNAME": Error registering throttler kprobe, return code is %d\n", ret) ;
@@ -123,4 +155,7 @@ int enable_monitor(void) {
 
 void disable_monitor(void) {
     unregister_kprobe(&throttler_kprobe) ;
+    cleanup_timers() ;
+    wait_var_event(&throttled_threads, !atomic_read(&throttled_threads)) ;
+    synchronize_rcu() ;
 }

@@ -21,10 +21,10 @@ void reset_max_value(unsigned long max) ;
 
 void register_delay(unsigned long delay, uid_t uid, char *progName) ;
 
-void reset_tolerance(void) ;
+void register_blocked(unsigned long excess) ;
 
 void dump_stats(struct stats_register *reg) ;
 
-bool should_sleep(void) ;
+unsigned long get_max_value(void) ;
 
 #endif

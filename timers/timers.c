@@ -20,12 +20,22 @@ static ktime_t oneSecond ;
 
 DECLARE_WAIT_QUEUE_HEAD(throttler_waitqueue) ;
 
-static unsigned long window ;
+static atomic_long_t next_ticket ;
+static unsigned long served ;
+
+static unsigned long window_budget(void) {
+    return min_t(unsigned long, get_max_value(), LONG_MAX / 2) ;
+}
 
 static enum hrtimer_restart throttler_poller(struct hrtimer *timer) {
-    reset_tolerance() ;
-    WRITE_ONCE(window, window +1) ;
-    wake_up(&throttler_waitqueue) ;
+    unsigned long next = atomic_long_read(&next_ticket) ;
+    unsigned long base = served ;
+
+    if ((long)(next - base) > 0) register_blocked(next - base) ;
+    else base = next ;
+
+    WRITE_ONCE(served, base + window_budget()) ;
+    wake_up_all(&throttler_waitqueue) ;
     hrtimer_forward_now(timer, oneSecond) ;
     return HRTIMER_RESTART ;
 }
@@ -34,16 +44,25 @@ void setup_timers(void) {
     hrtimer_init(&throttler_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL) ;
     throttler_timer.function = throttler_poller ;
     oneSecond = ktime_set(1,0) ;
+    WRITE_ONCE(served, atomic_long_read(&next_ticket) + window_budget()) ;
 
     hrtimer_start(&throttler_timer, oneSecond, HRTIMER_MODE_REL) ;
 }
 
 void cleanup_timers(void) {
-    hrtimer_cancel(&throttler_timer) ;    
+    hrtimer_cancel(&throttler_timer) ;
+    WRITE_ONCE(served, atomic_long_read(&next_ticket)) ;
+    wake_up_all(&throttler_waitqueue) ;
 }
 
-void throttle(void) {
-    unsigned long startWindow = READ_ONCE(window) ;
-    wait_event_killable(throttler_waitqueue, READ_ONCE(window) != startWindow) ;
-    return ;
+unsigned long take_ticket(void) {
+    return (unsigned long) atomic_long_inc_return(&next_ticket) ;
+}
+
+bool ticket_served(unsigned long ticket) {
+    return (long)(READ_ONCE(served) - ticket) >= 0 ;
+}
+
+int throttle(unsigned long ticket) {
+    return wait_event_killable(throttler_waitqueue, ticket_served(ticket)) ;
 }

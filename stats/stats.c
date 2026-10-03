@@ -16,7 +16,7 @@
 
 static struct stats_register stats[2] = {
     {
-        .MAX = ULONG_MAX,
+        .MAX = LONG_MAX /2,
 
         .peak_blocked = 0UL,
         .sum_blocked = 0UL,
@@ -27,7 +27,7 @@ static struct stats_register stats[2] = {
         .peak_name = { '\0' },
     },
     {
-        .MAX = ULONG_MAX,
+        .MAX = LONG_MAX / 2,
         .peak_blocked = 0UL,
         .sum_blocked = 0UL,
         .num_blocked = 0UL,
@@ -108,29 +108,23 @@ void register_delay(unsigned long delay, uid_t uid, char *progName) {
     return ;
 }
 
-void reset_tolerance(void) {
+void register_blocked(unsigned long excess) {
     struct stats_register *reg ;
-    unsigned long tolerance ;
 
     rcu_read_lock() ;
     reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
-    tolerance = atomic_long_xchg(&reg->tolerance, 0) ;
+    spin_lock(&reg->reg_lock) ;
 
-    if (tolerance > reg->MAX) {
-        unsigned long excess = tolerance - reg->MAX ;
-        spin_lock(&reg->reg_lock) ;
-
-        if (excess > reg->peak_blocked) reg->peak_blocked = excess ;
-        if (unlikely(ULONG_MAX - reg->sum_blocked < excess || reg->num_blocked == (ULONG_MAX -1))) {
-            reg->sum_blocked = reg->sum_blocked / reg->num_blocked + excess ;
-            reg->num_blocked = 1 ;
-        } else {
-            reg->sum_blocked += excess ;
-            reg->num_blocked++ ;
-        }
-
-        spin_unlock(&reg->reg_lock) ;
+    if (excess > reg->peak_blocked) reg->peak_blocked = excess ;
+    if (unlikely(ULONG_MAX - reg->sum_blocked < excess || reg->num_blocked == (ULONG_MAX -1))) {
+        reg->sum_blocked = reg->sum_blocked / reg->num_blocked + excess ;
+        reg->num_blocked = 1 ;
+    } else {
+        reg->sum_blocked += excess ;
+        reg->num_blocked++ ;
     }
+
+    spin_unlock(&reg->reg_lock) ;
     rcu_read_unlock() ;
     return ;
 }
@@ -147,14 +141,11 @@ void dump_stats(struct stats_register *reg) {
     return ;
 }
 
-bool should_sleep(void) {
-    struct stats_register *reg ;
-    unsigned long tolerance ;
+unsigned long get_max_value(void) {
+    unsigned long max ;
 
     rcu_read_lock() ;
-    reg = (struct stats_register *) atomic_long_read(&stat_ptr) ;
-    tolerance = atomic_long_inc_return(&reg->tolerance) ;
-
+    max = ((struct stats_register *) atomic_long_read(&stat_ptr))->MAX ;
     rcu_read_unlock() ;
-    return tolerance > reg->MAX ;
+    return max ;
 }

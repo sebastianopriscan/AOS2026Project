@@ -30,11 +30,10 @@ int set_throttler_status_on(void) {
     int retval = 0;
     down_write(&status_sem) ;
     if (STATUS == OFF) {
+        setup_timers() ;
         retval = enable_monitor() ;
-        if (retval >= 0) {
-            STATUS = ON ;
-            setup_timers() ;
-        }
+        if (retval >= 0) STATUS = ON ;
+        else cleanup_timers() ;
     }
     up_write(&status_sem) ;
     return retval ;
@@ -45,7 +44,6 @@ void set_throttler_status_off(void) {
     if (STATUS == ON) {
         disable_monitor() ;
         STATUS = OFF ;
-        cleanup_timers() ;
     }
     up_write(&status_sem) ;
 }

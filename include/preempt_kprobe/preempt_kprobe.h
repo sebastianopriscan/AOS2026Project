@@ -25,7 +25,11 @@ void reset_kprobe_context(void) ;
 void set_kprobe_context(struct kprobe *probe) ;
 
 /**
- * Sets up the preemptable kprobe system by obtaining the per CPU kprobe context pointer
+ * Sets up the preemptable kprobe system by obtaining the per CPU offset of the
+ * kernel's current_kprobe slot. The offset is the same on every CPU, so a single
+ * scan on the local CPU is enough, CPUs brought online later included
+ *
+ * @returns 0 on success, -ENODEV if the slot was not found, or register_kprobe's error
  */
 int setup_preempt_kprobe(void) ;
 
