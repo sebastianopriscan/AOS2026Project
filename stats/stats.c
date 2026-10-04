@@ -131,7 +131,6 @@ void register_blocked(unsigned long excess) {
 
 void dump_stats(struct stats_register *reg) {
     struct stats_register *src ;
-    unsigned long tolerance ;
 
     rcu_read_lock() ;
     src = (struct stats_register *) atomic_long_read(&stat_ptr) ;

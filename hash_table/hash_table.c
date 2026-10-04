@@ -56,7 +56,7 @@ static inline unsigned long evaluate_uid_hash(uid_t uid) {
     bool flipped = uid % 2 == 0 ;
     unsigned long first  = (flipped ? FIRST_HALF : SECOND_HALF) * uid ;
     unsigned long second = (flipped ? SECOND_HALF : FIRST_HALF) * uid ;
-    unsigned long hash   = (first << 32) | ((unsigned long) 0xFFFFFFFF & SECOND_HALF) ;
+    unsigned long hash   = (first << 32) | ((unsigned long) 0xFFFFFFFF & second) ;
     return hash % MODULUS ;
 }
 
