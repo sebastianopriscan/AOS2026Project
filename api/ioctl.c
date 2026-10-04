@@ -21,6 +21,7 @@
 
 ssize_t throttleA_uid_add(unsigned long uid) {
     if (uid >= (uid_t) -1) return -EINVAL ;
+    if (uid == 0) return -EPERM ; // root must not throttle itself
     return hash_table_insert_uid(uid) ;
 }
 

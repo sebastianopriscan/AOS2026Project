@@ -23,8 +23,12 @@
 
 static struct kmem_cache *policies_cache ;
 
+static inline bool euid_is_root(void) {
+    return uid_eq(current_euid(), GLOBAL_ROOT_UID) ;
+}
+
 static int dev_open(struct inode *inode, struct file *file) {
-    return 0 ;
+    return euid_is_root() ? 0 : -EPERM ;
 }
 
 static int dev_release(struct inode *inode, struct file *file) {
@@ -38,9 +42,9 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
     ssize_t retval ;
     void *argp_copied ;
 
-    if (!capable(CAP_SYS_ADMIN)) return -EPERM ; // BUG_REPORT R1
+    if (!euid_is_root()) return -EPERM ;
 
-    pr_debug("%s code is %#08x, code & CODE_MASK is %#08x\n", MODNAME, code, code & CODE_MASK) ; // BUG_REPORT A7
+    pr_debug("%s code is %#08x, code & CODE_MASK is %#08x\n", MODNAME, code, code & CODE_MASK) ;
 
     // Handlers for when argp is not needed
     if ((code & CODE_MASK) == THROTTLER_SET_ENABLE) {
@@ -133,7 +137,7 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
 
 static int dump_open(struct inode *inode, struct file *file) {
     unsigned int minor = MINOR(inode->i_rdev) ;
-    if (!capable(CAP_SYS_ADMIN)) return -EPERM ; // BUG_REPORT R1
+    if (!euid_is_root()) return -EPERM ;
     if (minor == 0) {
         if (hash_table_lock()) return -EBUSY ;
         reset_ht_file_handle() ;
@@ -144,7 +148,7 @@ static int dump_open(struct inode *inode, struct file *file) {
         reset_pt_file_handle() ;
         return 0 ;
     }
-    else return -ENXIO ; // BUG_REPORT A4
+    else return -ENXIO ;
 }
 
 static int dump_release(struct inode *inode, struct file *file) {
