@@ -99,7 +99,7 @@ void register_delay(unsigned long delay, uid_t uid, char *progName) {
     if (delay > reg->peak_delay) {
         reg->peak_delay = delay ;
         reg->peak_uid = (unsigned long) uid ;
-        if (progName) strncpy(reg->peak_name, progName, 2*PAGE_SIZE) ;
+        if (progName) strncpy(reg->peak_name, progName, PATH_MAX) ;
         else reg->peak_name[0] = '\0' ;
     } 
 

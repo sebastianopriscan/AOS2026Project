@@ -12,7 +12,7 @@ struct stats_register {
 
     unsigned long peak_delay ;
     unsigned long peak_uid ;
-    unsigned char peak_name[2*PAGE_SIZE] ;
+    unsigned char peak_name[PATH_MAX] ;
 } ;
 
 void init_stats(void) ;

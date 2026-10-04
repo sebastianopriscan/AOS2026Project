@@ -72,13 +72,13 @@ static char *get_exe_path(struct file **file, char **buffer, gfp_t flags) {
     *file = get_task_exe_file(current) ;
     if (*file == NULL) return NULL ;
 
-    *buffer = kmalloc(2*PAGE_SIZE, flags) ;
+    *buffer = kmalloc(PATH_MAX, flags) ;
     if (*buffer == NULL) {
         printk(KERN_DEBUG "Memory could not be allocated for thread %d, its path is not resolved\n", current->pid) ;
         return NULL ;
     }
 
-    pathPtr = file_path(*file, *buffer, 2*PAGE_SIZE) ;
+    pathPtr = file_path(*file, *buffer, PATH_MAX) ;
     if (IS_ERR(pathPtr)) {
         printk(KERN_DEBUG "Path name resolution was incomplete for thread %d\n", current->pid) ;
         return NULL ;

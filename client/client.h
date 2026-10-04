@@ -39,13 +39,8 @@ struct _throttleA_syscall_map {
 } ;
 typedef struct _throttleA_syscall_map throttleA_syscall_map ;
 
-#define STATS_PAGE_SIZE 4096
-
 /**
  * Mirror of the kernel's struct stats_register (include/stats/stats.h).
- * The kernel-only types are replaced by same-sized user-space ones:
- * atomic_long_t -> long, spinlock_t -> unsigned int (4 bytes when the
- * kernel is built without spinlock debugging), PAGE_SIZE -> 4096 (x86_64).
  */
 struct throttleA_stats_register {
     long tolerance ;
@@ -58,7 +53,7 @@ struct throttleA_stats_register {
 
     unsigned long peak_delay ;
     unsigned long peak_uid ;
-    unsigned char peak_name[2*STATS_PAGE_SIZE] ;
+    unsigned char peak_name[PATH_MAX] ;
 } ;
 
 /******** Operation addUid: ********

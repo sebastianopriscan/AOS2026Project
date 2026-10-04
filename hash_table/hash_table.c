@@ -46,6 +46,12 @@ static struct ht_file_handle handle ;
 
 static struct rw_semaphore HT_RWLOCK ;
 
+/**
+ * Bumped by every insert/remove that gets past HT_RWLOCK, so a dumper that
+ * lost the lock can tell if its handle may still point to live records
+ */
+static atomic_long_t HT_GEN = ATOMIC_LONG_INIT(0) ;
+
 static inline unsigned long evaluate_uid_hash(uid_t uid) {
     bool flipped = uid % 2 == 0 ;
     unsigned long first  = (flipped ? FIRST_HALF : SECOND_HALF) * uid ;
@@ -61,6 +67,7 @@ int hash_table_insert_uid(uid_t uid) {
     uid_record *record ;
 
     if (!down_read_trylock(&HT_RWLOCK)) return -EBUSY ;
+    atomic_long_inc(&HT_GEN) ;
 
     ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
     list = &ht_record->overflow_list;
@@ -97,6 +104,7 @@ int hash_table_remove_uid(uid_t uid) {
     uid_record *record, *found = NULL;
 
     if (!down_read_trylock(&HT_RWLOCK)) return -EBUSY ;
+    atomic_long_inc(&HT_GEN) ;
 
     ht_record = &(&UID_TABLE)->records[evaluate_uid_hash(uid)] ;
     list = &ht_record->overflow_list;
@@ -128,6 +136,10 @@ int hash_table_lock(void) {
 
 void hash_table_unlock(void) {
     up_write(&HT_RWLOCK) ;
+}
+
+unsigned long hash_table_generation(void) {
+    return atomic_long_read(&HT_GEN) ;
 }
 
 void init_hash_table(void) {
@@ -197,7 +209,7 @@ static inline int keep_reading(char __user *buf, ssize_t len) {
 
     if (handle.curr == NULL) return 0 ;
 
-    sprintf(parsed, "%d\n", handle.curr->uid) ;
+    sprintf(parsed, "%u\n", handle.curr->uid) ;
     parsedlen = strlen(parsed) ;
     remaining = parsedlen - handle.state ;
 
@@ -220,7 +232,7 @@ static inline int keep_reading(char __user *buf, ssize_t len) {
             } while (1) ;
         } else handle.curr = container_of(handle.curr->overflow_list.next, uid_record, overflow_list) ;
 
-        sprintf(parsed, "%d\n", handle.curr->uid) ;
+        sprintf(parsed, "%u\n", handle.curr->uid) ;
         parsedlen = strlen(parsed) ;
         remaining = parsedlen - handle.state ;
     }

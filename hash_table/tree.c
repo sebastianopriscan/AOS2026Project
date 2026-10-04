@@ -33,6 +33,12 @@ static struct pt_file_handle handle ;
 
 static struct rw_semaphore PT_LOCK ;
 
+/**
+ * Bumped by every insert/remove that gets past PT_LOCK, so a dumper that
+ * lost the lock can tell if its handle may still point to live entries
+ */
+static atomic_long_t PT_GEN = ATOMIC_LONG_INIT(0) ;
+
 path_tree_entry ROOT ;
 
 static inline void lock_path_tree_entry(path_tree_entry *entry) {
@@ -133,6 +139,7 @@ int remove_path_tree_entry(char *fullPath) {
 
     if (!valid_path(fullPath)) return -EINVAL ;
     if (!down_read_trylock(&PT_LOCK)) return -EBUSY ;
+    atomic_long_inc(&PT_GEN) ;
     lock_path_tree_entry(&ROOT) ;
 
     do {
@@ -203,6 +210,7 @@ int insert_path_tree_entry(char *fullPath) {
 
     if (!valid_path(fullPath)) return -EINVAL ;
     if (!down_read_trylock(&PT_LOCK)) return -EBUSY ;
+    atomic_long_inc(&PT_GEN) ;
     lock_path_tree_entry(&ROOT) ;
 
     do {
@@ -315,6 +323,10 @@ int path_tree_lock(void) {
 
 void path_tree_unlock(void) {
     up_write(&PT_LOCK) ;
+}
+
+unsigned long path_tree_generation(void) {
+    return atomic_long_read(&PT_GEN) ;
 }
 
 void init_path_tree(void) {

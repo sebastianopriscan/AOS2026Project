@@ -81,6 +81,11 @@ int path_tree_lock(void) ;
  */
 void path_tree_unlock(void) ;
 
+/**
+ * @returns A value that changes whenever the tree may have been modified
+ */
+unsigned long path_tree_generation(void) ;
+
 void init_path_tree(void) ;
 
 void cleanup_path_tree(void) ;

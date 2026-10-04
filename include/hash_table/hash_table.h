@@ -44,6 +44,11 @@ int hash_table_lock(void) ;
 void hash_table_unlock(void) ;
 
 /**
+ * @returns A value that changes whenever the table may have been modified
+ */
+unsigned long hash_table_generation(void) ;
+
+/**
  * Get a policy table entry
  * @param uid: The thread's effective user id
  * @returns A boolean indicating the uid is contained in the table or not
