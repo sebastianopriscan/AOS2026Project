@@ -353,7 +353,7 @@ static int handleStats(int fd, int argc) {
         } else {
             printf("Average blocked   : 0\n") ;
         }
-        printf("Peak delay        : %lu\n", reg->peak_delay) ;
+        printf("Peak delay (ms)   : %.3f\n", ((double) reg->peak_delay) / 1e6) ;
         printf("Peak delay uid    : %lu\n", reg->peak_uid) ;
         printf("Peak delay program: %s\n", reg->peak_name) ;
     }

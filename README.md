@@ -14,6 +14,12 @@ From the project root, run :
 make all start
 ```
 
+to remove the module and all the files:
+
+```bash
+make stop
+```
+
 You'll eventually be prompted for the root password.
 
 ### Module management
