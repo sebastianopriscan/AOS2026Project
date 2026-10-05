@@ -26,6 +26,9 @@
 // How long a dump lock may stay held without the reader showing up
 #define DUMP_LOCK_TIMEOUT_SEC 10
 
+// Room for the largest argument copied from/to user space
+#define POLICIES_BUF_SIZE max3(sizeof(throttleA_path), sizeof(throttleA_syscall_map), sizeof(struct stats_register))
+
 static struct kmem_cache *policies_cache ;
 
 static inline bool euid_is_root(void) {
@@ -346,11 +349,11 @@ int setup_api(void) {
     // The whole object is copied to/from user space, so whitelist all of it for hardened usercopy
     policies_cache = kmem_cache_create_usercopy(
         MODNAME"_policies",
-        3 * PAGE_SIZE,
-        3 * PAGE_SIZE,
-        SLAB_POISON,
+        POLICIES_BUF_SIZE,
         0,
-        3 * PAGE_SIZE,
+        0,
+        0,
+        POLICIES_BUF_SIZE,
         NULL
     );
 
