@@ -144,4 +144,15 @@ struct throttleA_stats_register {
 */
 #define THROTTLER_SET_DISABLE 0xA0000000
 
+/******** Operation dumpStatus: ********
+    OPCODE    : 0b1011
+    OPARG     : void
+    OPARGTYPE : OUT (through the return value: 1 on, 0 off)
+    ARGSIZE   : 0
+*/
+#define DUMP_STATUS 0xB0000000
+
+#define DUMP_UIDS_PATH "/dev/throttleA-uids"
+#define DUMP_PATHS_PATH "/dev/throttleA-paths"
+
 #endif

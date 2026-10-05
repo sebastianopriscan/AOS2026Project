@@ -1,4 +1,5 @@
 #include "client.h"
+#include "syscall_names.h"
 #include <stdio.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -11,11 +12,12 @@
 
 #define PRINT_USAGE() \
         fprintf(stderr, "Usage:\n" \
-            "\tthrottlectl on|off\n" \
+            "\tthrottlectl on|off|status\n" \
             "\tthrottlectl uid add|rm UID\n" \
             "\tthrottlectl path add|rm PATH\n" \
-            "\tthrottlectl syscalls add|rm SYSCALLNUM1,SYSCALLNUM2,...\n" \
-            "\tthrottlectl syscalls dump\n" \
+            "\tthrottlectl path dump\n" \
+            "\tthrottlectl syscalls add|rm NAME1,NAME2,...\n" \
+            "\tthrottlectl syscalls dump [-n]\n" \
             "\tthrottlectl stats\n" \
             "\tthrottlectl max MAX\n" \
         ) \
@@ -36,7 +38,30 @@ static inline int parseUnsigned(const char *value, unsigned long *out) {
 }
 
 /**
- * Fills the map with the comma separated syscall numbers in list
+ * Resolves a syscall name, returns -1 if it is unknown
+ */
+static inline int syscallByName(const char *name, unsigned long *out) {
+    for (size_t i = 0 ; i < sizeof(syscall_names) / sizeof(syscall_names[0]) ; i++) {
+        if (strcmp(syscall_names[i].name, name) == 0) {
+            *out = syscall_names[i].nr ;
+            return 0 ;
+        }
+    }
+    return -1 ;
+}
+
+/**
+ * @return the name of the syscall, NULL if it is unknown
+ */
+static inline const char *syscallName(unsigned long nr) {
+    for (size_t i = 0 ; i < sizeof(syscall_names) / sizeof(syscall_names[0]) ; i++) {
+        if (syscall_names[i].nr == nr) return syscall_names[i].name ;
+    }
+    return NULL ;
+}
+
+/**
+ * Fills the map with the comma separated syscall names (or numbers, for the ones without a name) in list
  */
 static inline int parseSyscalls(const char *list, throttleA_syscall_map *map) {
     char *copy, *token ;
@@ -57,7 +82,12 @@ static inline int parseSyscalls(const char *list, throttleA_syscall_map *map) {
         retVal = -1 ;
     }
     while (token != NULL) {
-        if (parseUnsigned(token, &code) == -1 || code >= SYSCALL_LIMIT) {
+        if (syscallByName(token, &code) == -1 && parseUnsigned(token, &code) == -1) {
+            fprintf(stderr, "Error: unknown syscall '%s'\n", token) ;
+            retVal = -1 ;
+            break ;
+        }
+        if (code >= SYSCALL_LIMIT) {
             fprintf(stderr, "Error: invalid syscall number '%s' (allowed range 0-%d)\n", token, SYSCALL_LIMIT -1) ;
             retVal = -1 ;
             break ;
@@ -123,10 +153,114 @@ static int handleUid(int fd, int argc, char **argv) {
     return -1 ;
 }
 
+/**
+ * Reads the whole content of the file at devPath into a NUL-terminated buffer
+ * @return the buffer to free, NULL on failure
+ */
+static char *readDump(const char *devPath, size_t *len) {
+    size_t cap = 4096, used = 0 ;
+    char *buf = malloc(cap + 1), *grown ;
+    ssize_t n ;
+    int fd = open(devPath, O_RDONLY) ;
+
+    if (fd == -1) {
+        perror("Error opening dump file") ;
+        free(buf) ;
+        return NULL ;
+    }
+
+    while (buf != NULL) {
+        if (used == cap) {
+            cap *= 2 ;
+            grown = realloc(buf, cap + 1) ;
+            if (grown == NULL) {
+                free(buf) ;
+                buf = NULL ;
+                break ;
+            }
+            buf = grown ;
+        }
+        n = read(fd, buf + used, cap - used) ;
+        if (n == 0) break ;
+        if (n < 0) {
+            perror("Error reading dump file") ;
+            free(buf) ;
+            close(fd) ;
+            return NULL ;
+        }
+        used += n ;
+    }
+    close(fd) ;
+
+    if (buf == NULL) {
+        perror("Error allocating dump buffer") ;
+        return NULL ;
+    }
+    buf[used] = '\0' ;
+    *len = used ;
+    return buf ;
+}
+
+/**
+ * Turns the path tree dump into the list of the registered full paths. The dump has a line
+ * per node, indented by one tab per level, made of the component, a space and 'x' if registered
+ */
+static int dumpPaths(void) {
+    size_t len, maxDepth, depth, prevDepth = 0 ;
+    size_t *prefixLen ;
+    char *dump = readDump(DUMP_PATHS_PATH, &len), *path, *line, *next ;
+    int retVal = 0 ;
+
+    if (dump == NULL) return -1 ;
+
+    // Every level takes at least 3 bytes of dump, so this bounds the depth
+    maxDepth = len / 3 + 1 ;
+    prefixLen = calloc(maxDepth + 1, sizeof(size_t)) ;
+    path = malloc(len + 1) ;
+    if (prefixLen == NULL || path == NULL) {
+        perror("Error allocating dump buffers") ;
+        retVal = -1 ;
+        goto out ;
+    }
+
+    for (line = dump ; *line != '\0' ; line = next) {
+        size_t nameLen ;
+
+        next = strchr(line, '\n') ;
+        if (next == NULL) next = line + strlen(line) ;
+        else *next++ = '\0' ;
+
+        for (depth = 0 ; line[depth] == '\t' ; depth++) ;
+        nameLen = strlen(line + depth) ;
+        if (nameLen < 2 || depth > prevDepth + 1 || depth > maxDepth) {
+            fprintf(stderr, "Error: malformed path dump line '%s'\n", line) ;
+            retVal = -1 ;
+            goto out ;
+        }
+        prevDepth = depth ;
+        if (depth == 0) continue ; // The root is not a registered path
+
+        nameLen -= 2 ;
+        path[prefixLen[depth -1]] = '/' ;
+        memcpy(path + prefixLen[depth -1] + 1, line + depth, nameLen) ;
+        prefixLen[depth] = prefixLen[depth -1] + 1 + nameLen ;
+
+        if (line[depth + nameLen + 1] == 'x') printf("%.*s\n", (int) prefixLen[depth], path) ;
+    }
+
+out:
+    free(path) ;
+    free(prefixLen) ;
+    free(dump) ;
+    return retVal ;
+}
+
 static int handlePath(int fd, int argc, char **argv) {
     throttleA_path *path ;
     unsigned int code ;
     int retVal ;
+
+    if (argc == 3 && strcmp(argv[2], "dump") == 0) return dumpPaths() ;
 
     if (argc != 4) {
         PRINT_USAGE() ;
@@ -159,13 +293,17 @@ static int handleSyscalls(int fd, int argc, char **argv) {
     throttleA_syscall_map map ;
     unsigned int code ;
 
-    if (argc == 3 && strcmp(argv[2], "dump") == 0) {
+    if ((argc == 3 || (argc == 4 && strcmp(argv[3], "-n") == 0)) && strcmp(argv[2], "dump") == 0) {
+        const char *name ;
+
         memset(&map, 0, sizeof(throttleA_syscall_map)) ;
         if (doIoctl(fd, DUMP_SYSCALLS | sizeof(throttleA_syscall_map), (unsigned long) &map) == -1) return -1 ;
 
         for (unsigned long i = 0 ; i < SYSCALL_LIMIT ; i++) {
             if (map.map[i / MAP_ENTRY_BITS] & (1UL << (i % MAP_ENTRY_BITS))) {
-                printf("%lu\n", i) ;
+                name = argc == 3 ? syscallName(i) : NULL ;
+                if (name != NULL) printf("%s\n", name) ;
+                else printf("%lu\n", i) ;
             }
         }
         return 0 ;
@@ -224,6 +362,18 @@ static int handleStats(int fd, int argc) {
     return retVal ;
 }
 
+static int handleStatus(int fd) {
+    int ret = ioctl(fd, DUMP_STATUS, 0) ;
+
+    if (ret == -1) {
+        perror("Error invoking throttler operation") ;
+        return -1 ;
+    }
+
+    printf("%s\n", ret ? "on" : "off") ;
+    return 0 ;
+}
+
 static int handleMax(int fd, int argc, char **argv) {
     unsigned long max ;
 
@@ -255,6 +405,8 @@ int main(int argc, char **argv) {
         retVal = doIoctl(throttlerFd, THROTTLER_SET_ENABLE, 0) ;
     } else if (strcmp(argv[1], "off") == 0 && argc == 2) {
         retVal = doIoctl(throttlerFd, THROTTLER_SET_DISABLE, 0) ;
+    } else if (strcmp(argv[1], "status") == 0 && argc == 2) {
+        retVal = handleStatus(throttlerFd) ;
     } else if (strcmp(argv[1], "uid") == 0 && argc >= 3) {
         retVal = handleUid(throttlerFd, argc, argv) ;
     } else if (strcmp(argv[1], "path") == 0 && argc >= 3) {

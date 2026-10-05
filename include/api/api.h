@@ -180,6 +180,19 @@ ssize_t set_throttler_on(void) ;
 
 ssize_t set_throttler_off(void) ;
 
+/******** Operation dumpStatus: ********
+    OPCODE    : 0b1011
+    OPMACRO   : DUMP_STATUS
+    OPARG     : void
+    OPARGTYPE : OUT (through the return value)
+    ARGSIZE   : 0
+
+    Description : returns 1 if the throttler is on, 0 if it is off
+*/
+#define DUMP_STATUS 0xB0000000
+
+ssize_t throttleA_status_dump(void) ;
+
 
 /*********** Lifecycle operations **********/
 

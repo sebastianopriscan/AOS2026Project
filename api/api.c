@@ -196,6 +196,8 @@ static ssize_t dev_ioctl(struct file *filp, unsigned int code, unsigned long arg
         return set_throttler_on() ;
     } else if ((code & CODE_MASK) == THROTTLER_SET_DISABLE) {
         return set_throttler_off() ;
+    } else if ((code & CODE_MASK) == DUMP_STATUS) {
+        return throttleA_status_dump() ;
     } else if ((code & CODE_MASK) == ADD_UID) {
         return throttleA_uid_add(argp) ;
     } else if ((code & CODE_MASK) == RM_UID) {

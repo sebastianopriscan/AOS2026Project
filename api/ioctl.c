@@ -82,6 +82,10 @@ ssize_t set_throttler_on() {
     return set_throttler_status_on() ;
 }
 
+ssize_t throttleA_status_dump(void) {
+    return get_throttler_status() == ON ;
+}
+
 ssize_t set_throttler_off() {
     set_throttler_status_off() ;
     return 0 ;

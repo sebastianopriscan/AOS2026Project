@@ -5,3 +5,5 @@ bundle.tgz
 **/*.ko
 
 client/throttlectl
+client/syscall_names.h
+client/dumphold
